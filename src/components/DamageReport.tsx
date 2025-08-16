@@ -19,10 +19,8 @@ interface DamageReportProps {
 }
 
 const DAMAGE_PHOTOS = [
-  'https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=400&h=300&fit=crop',
-  'https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=400&h=300&fit=crop&crop=right',
-  'https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=400&h=300&fit=crop&crop=top',
-  'https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=400&h=300&fit=crop&crop=bottom',
+  '/src/assets/images/1.jpeg',
+  '/src/assets/images/2.jpeg',
 ];
 
 const ESTIMATE_BREAKDOWN = [

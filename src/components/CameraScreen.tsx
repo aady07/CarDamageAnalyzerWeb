@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Webcam from 'react-webcam';
 import { ArrowLeft, Camera, Square, CheckCircle, AlertCircle, AlertTriangle } from 'lucide-react';
+import * as tf from '@tensorflow/tfjs';
+import * as cocoSsd from '@tensorflow-models/coco-ssd';
 
 // Import car stencil images
 import frontStencil from '../assets/images/1.png';
@@ -41,17 +43,57 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
   const [guidanceMessage, setGuidanceMessage] = useState('');
   const [completedPositions, setCompletedPositions] = useState<number[]>([]);
   const [cameraPermission, setCameraPermission] = useState<'granted' | 'denied' | 'pending'>('pending');
+  
+  // Mobile app variables
+  const [recordingPhase, setRecordingPhase] = useState<'idle' | 'front' | 'right' | 'back' | 'left' | 'complete'>('front');
+  const [phaseTimer, setPhaseTimer] = useState(0);
+  
+  // Car detection variables
+  const [model, setModel] = useState<cocoSsd.ObjectDetection | null>(null);
+  const [modelLoading, setModelLoading] = useState(false);
+  const [carDetected, setCarDetected] = useState(false);
+  const [detectionConfidence, setDetectionConfidence] = useState(0);
+  const [completionTriggered, setCompletionTriggered] = useState(false);
   const [showPermissionRequest, setShowPermissionRequest] = useState(false);
   const [cameraError, setCameraError] = useState<string>('');
   const [isMobile, setIsMobile] = useState(false);
+  const [isLandscape, setIsLandscape] = useState(false);
+  const [showOrientationPrompt, setShowOrientationPrompt] = useState(false);
   
   const webcamRef = useRef<Webcam>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const detectionTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const detectCarRef = useRef<(() => Promise<boolean>) | null>(null);
 
-  const currentPosData = POSITIONS[currentPosition];
+  const currentPosData = POSITIONS[currentPosition] || POSITIONS[0]; // Fallback to first position if out of bounds
 
-  // Detect mobile device and request camera permission on component mount
+
+
+  // Load TensorFlow.js model
+  useEffect(() => {
+    const loadModel = async () => {
+      try {
+        setModelLoading(true);
+        console.log('Loading car detection model...');
+        
+        // Initialize TensorFlow.js backend
+        await tf.ready();
+        console.log('TensorFlow.js backend ready:', tf.getBackend());
+        
+        const loadedModel = await cocoSsd.load();
+        setModel(loadedModel);
+        console.log('Car detection model loaded successfully');
+      } catch (error) {
+        console.error('Failed to load car detection model:', error);
+      } finally {
+        setModelLoading(false);
+      }
+    };
+
+    loadModel();
+  }, []);
+
+  // Detect mobile device and check orientation
   useEffect(() => {
     // Detect mobile device
     const checkMobile = () => {
@@ -60,107 +102,182 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
       setIsMobile(isMobileDevice);
     };
     
+    // Check orientation
+    const checkOrientation = () => {
+      const isLandscapeMode = window.innerWidth > window.innerHeight;
+      setIsLandscape(isLandscapeMode);
+      
+      // Show orientation prompt for mobile devices in portrait mode
+      if (isMobile && !isLandscapeMode) {
+        setShowOrientationPrompt(true);
+      } else {
+        setShowOrientationPrompt(false);
+      }
+    };
+
+    // Lock screen orientation to landscape (like mobile app)
+    const lockOrientation = async () => {
+      try {
+        if (screen.orientation && screen.orientation.lock) {
+          await screen.orientation.lock('landscape');
+          console.log('Screen orientation locked to landscape');
+        }
+      } catch (error) {
+        console.log('Could not lock orientation:', error);
+      }
+    };
+
+    // Unlock screen orientation
+    const unlockOrientation = async () => {
+      try {
+        if (screen.orientation && screen.orientation.unlock) {
+          await screen.orientation.unlock();
+          console.log('Screen orientation unlocked');
+        }
+      } catch (error) {
+        console.log('Could not unlock orientation:', error);
+      }
+    };
+
+
+    
     checkMobile();
+    checkOrientation();
+
+    // Listen for orientation changes
+    const handleOrientationChange = () => {
+      setTimeout(checkOrientation, 100); // Small delay to ensure orientation is updated
+    };
+
+    window.addEventListener('resize', handleOrientationChange);
+    window.addEventListener('orientationchange', handleOrientationChange);
 
     const requestCameraPermission = async () => {
       try {
-        // Check if we're in a secure context (HTTPS or localhost)
-        if (!window.isSecureContext) {
-          setCameraError('Camera requires a secure connection (HTTPS)');
-          setCameraPermission('denied');
-          setShowPermissionRequest(true);
-          return;
-        }
-
         // Check if getUserMedia is supported
-        if (!navigator.mediaDevices) {
-          setCameraError('Camera API not supported in this browser');
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          setCameraError('Camera not supported in this browser');
           setCameraPermission('denied');
-          setShowPermissionRequest(true);
           return;
         }
 
-        if (!navigator.mediaDevices.getUserMedia) {
-          setCameraError('getUserMedia not supported in this browser');
-          setCameraPermission('denied');
-          setShowPermissionRequest(true);
-          return;
-        }
-
-        // Test if getUserMedia is actually callable
-        try {
-          const testPromise = navigator.mediaDevices.getUserMedia({ video: false });
-          console.log('getUserMedia is callable');
-        } catch (testError) {
-          console.error('getUserMedia test failed:', testError);
-          setCameraError('Camera API is not properly implemented in this browser');
-          setCameraPermission('denied');
-          setShowPermissionRequest(true);
-          return;
-        }
-
-        console.log('Requesting camera permission...');
-        
-        // Request camera permission with simpler constraints first
+        // Request camera permission
         const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: {
-            facingMode: 'environment',
-            width: { min: 640, ideal: 1280, max: 1920 },
-            height: { min: 480, ideal: 720, max: 1080 }
+          video: { 
+            facingMode: 'environment', // Use back camera on mobile
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
           } 
         });
         
-        console.log('Camera permission granted, stream:', stream);
-        
         // Stop the stream immediately after getting permission
-        stream.getTracks().forEach(track => {
-          track.stop();
-          console.log('Stopped track:', track);
-        });
+        stream.getTracks().forEach(track => track.stop());
         
         setCameraPermission('granted');
         setShowPermissionRequest(false);
       } catch (error: any) {
         console.error('Camera permission error:', error);
-        
-        let errorMessage = 'Failed to access camera';
-        if (error.name === 'NotAllowedError') {
-          errorMessage = 'Camera permission denied. Please allow camera access.';
-        } else if (error.name === 'NotFoundError') {
-          errorMessage = 'No camera found on this device.';
-        } else if (error.name === 'NotSupportedError') {
-          errorMessage = 'Camera not supported in this browser.';
-        } else if (error.name === 'NotReadableError') {
-          errorMessage = 'Camera is already in use by another application.';
-        } else if (error.message) {
-          errorMessage = error.message;
-        }
-        
-        setCameraError(errorMessage);
+        setCameraError(error.message || 'Failed to access camera');
         setCameraPermission('denied');
         setShowPermissionRequest(true);
       }
     };
 
-    // Longer delay to ensure component is fully mounted and browser is ready
+    // Small delay to ensure component is mounted
     const timer = setTimeout(() => {
       requestCameraPermission();
-    }, 1000);
+      // Lock orientation to landscape when camera screen is shown (like mobile app)
+      lockOrientation();
+    }, 500);
 
-    return () => clearTimeout(timer);
-  }, []);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', handleOrientationChange);
+      window.removeEventListener('orientationchange', handleOrientationChange);
+      // Unlock orientation when component unmounts
+      unlockOrientation();
+    };
+  }, [isMobile]);
 
-  // Detection phase - 6 seconds (matching mobile app)
+    // Detection phase - Real-world car inspection flow
   useEffect(() => {
-    if (status === 'detecting') {
-      setTimer(0);
-      setShowGuidance(true);
-      setGuidanceMessage('Keep camera stable and steady');
+    console.log('🔍 Detection useEffect triggered - status:', status, 'currentPosition:', currentPosition);
+    if (status === 'detecting' && currentPosition < POSITIONS.length && !completionTriggered) {
+      console.log('🚀 Starting detection phase for position:', currentPosition, 'recordingPhase:', recordingPhase);
       
+      // Reset detection state for new position (only if not already completed)
+      if (!carDetected) {
+        setPhaseTimer(0);
+        setCarDetected(false);
+        setDetectionConfidence(0);
+        setShowGuidance(true);
+      }
+      
+      // Show position-specific guidance
+      const positionMessages = {
+        0: 'Position your camera at the FRONT of the car',
+        1: 'Move to the RIGHT side of the car',
+        2: 'Move to the BACK of the car', 
+        3: 'Move to the LEFT side of the car'
+      };
+      
+      setGuidanceMessage(positionMessages[currentPosition as keyof typeof positionMessages] || 'Positioning camera...');
+      
+      // Run car detection every 1 second (less frequent for better UX)
+      const detectionInterval = setInterval(async () => {
+        console.log('🔄 Detection interval: Running detection check');
+        if (model && !modelLoading && detectCarRef.current && !completionTriggered) {
+          console.log('🔄 Detection interval: Model ready, running detection');
+          const detected = await detectCarRef.current();
+          console.log('🔄 Detection interval: Detection result:', detected);
+          if (detected && !completionTriggered) {
+            console.log('🔄 Detection interval: Car detected, updating UI');
+            
+            // Set flag to prevent multiple completions
+            setCompletionTriggered(true);
+            
+            // Clear the detection interval to stop further detection
+            clearInterval(detectionInterval);
+            
+            // Show success message and keep stencil green
+            setShowGuidance(true);
+            const positionNames = ['FRONT', 'RIGHT', 'BACK', 'LEFT'];
+            setGuidanceMessage(`${positionNames[currentPosition]} view captured! Moving to next position in 5 seconds...`);
+            
+            // Keep stencil green for 5 seconds so user can see the success
+            console.log('🔄 Detection interval: Keeping stencil green for 5 seconds');
+            setTimeout(() => {
+              completePosition();
+            }, 5000); // Wait 5 seconds after detection before moving to next position
+          }
+        } else {
+          console.log('🔄 Detection interval: Model not ready or completion triggered - model:', !!model, 'loading:', modelLoading, 'ref:', !!detectCarRef.current, 'completionTriggered:', completionTriggered);
+        }
+      }, 1000); // Reduced frequency for better UX
+      
+      // Fallback timer - if no car detected after 15 seconds, show message and proceed
       detectionTimerRef.current = setTimeout(() => {
-        setStatus('ready');
-        setShowGuidance(false);
-      }, 6000); // 6 seconds like mobile app
+        console.log('⏰ 15 seconds elapsed - no car detected, proceeding anyway');
+        setShowGuidance(true);
+        const positionNames = ['FRONT', 'RIGHT', 'BACK', 'LEFT'];
+        setGuidanceMessage(`${positionNames[currentPosition]} view not captured. Moving to next position in 3 seconds...`);
+        
+        // Wait 3 seconds to show the message, then move to next position
+        setTimeout(() => {
+          setStatus('ready');
+          setShowGuidance(false);
+          completePosition();
+        }, 3000);
+        
+        clearInterval(detectionInterval);
+      }, 15000); // Increased to 15 seconds for real-world movement
+      
+      return () => {
+        clearInterval(detectionInterval);
+        if (detectionTimerRef.current) {
+          clearTimeout(detectionTimerRef.current);
+        }
+      };
     }
 
     return () => {
@@ -168,25 +285,73 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
         clearTimeout(detectionTimerRef.current);
       }
     };
-  }, [status, currentPosition]);
+  }, [status, currentPosition, model, modelLoading]);
 
-  // Auto-start recording for non-front positions after 1 second of ready state
-  useEffect(() => {
-    if (status === 'ready' && currentPosition > 0) {
-      const autoRecordTimer = setTimeout(() => {
-        setStatus('recording');
-      }, 1000);
-      
-      return () => clearTimeout(autoRecordTimer);
+  // Car detection function
+  const detectCar = useCallback(async () => {
+    if (!model || !webcamRef.current) {
+      console.log('🔍 Car detection: Model or webcam not available');
+      return false;
     }
-  }, [status, currentPosition]);
+    
+    try {
+      const imageSrc = webcamRef.current.getScreenshot();
+      if (!imageSrc) {
+        console.log('🔍 Car detection: No screenshot available');
+        return false;
+      }
+      
+      console.log('🔍 Car detection: Starting detection for position', currentPosition);
+      
+      // Create image element
+      const img = new Image();
+      img.src = imageSrc;
+      
+      await new Promise((resolve) => {
+        img.onload = resolve;
+      });
+      
+      // Run detection
+      const predictions = await model.detect(img);
+      console.log('🔍 Car detection: Raw predictions:', predictions);
+      
+      // Look for car, truck, or bus with high confidence
+      const carPrediction = predictions.find(pred => 
+        (pred.class === 'car' || pred.class === 'truck' || pred.class === 'bus') && 
+        pred.score > 0.7
+      );
+      
+      if (carPrediction) {
+        console.log('🚗 Car detected! Class:', carPrediction.class, 'Confidence:', carPrediction.score);
+        setCarDetected(true);
+        setDetectionConfidence(carPrediction.score);
+        return true;
+      } else {
+        console.log('❌ No car detected. Available objects:', predictions.map(p => `${p.class}(${p.score.toFixed(2)})`));
+        setCarDetected(false);
+        setDetectionConfidence(0);
+        return false;
+      }
+    } catch (error) {
+      console.error('🔍 Car detection error:', error);
+      return false;
+    }
+  }, [model, currentPosition]);
+
+  // Store detectCar function in ref to avoid circular dependency
+  useEffect(() => {
+    detectCarRef.current = detectCar;
+  }, [detectCar]);
+
+  // Auto-advancement is now handled in the detection phase
+  // This useEffect is no longer needed since we auto-advance from detection
 
   // Recording phase - auto-advance for non-front positions
   useEffect(() => {
     if (status === 'recording') {
       setIsRecording(true);
       timerRef.current = setInterval(() => {
-        setTimer(prev => {
+        setPhaseTimer(prev => {
           const newTimer = prev + 1;
           if (newTimer >= 6) {
             // Complete recording after 6 seconds
@@ -211,13 +376,40 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
   }, [status]);
 
   const completePosition = useCallback(() => {
+    console.log('✅ Completing position:', currentPosition);
+    
+    // Prevent multiple completions
+    if (currentPosition >= POSITIONS.length) {
+      console.log('⚠️ Position already completed, skipping');
+      return;
+    }
+    
     setCompletedPositions(prev => [...prev, currentPosition]);
     
     if (currentPosition < POSITIONS.length - 1) {
       // Move to next position
+      const nextPosition = currentPosition + 1;
+      console.log('🔄 Moving to next position:', nextPosition);
       setCurrentPosition(prev => prev + 1);
       setStatus('detecting');
-      setTimer(0);
+      setPhaseTimer(0);
+      
+      // Reset completion state for next position
+      setCompletionTriggered(false);
+      setCarDetected(false);
+      setDetectionConfidence(0);
+      
+      // Update recordingPhase to match mobile app
+      if (nextPosition === 1) {
+        console.log('🔄 Setting recordingPhase to: right');
+        setRecordingPhase('right');
+      } else if (nextPosition === 2) {
+        console.log('🔄 Setting recordingPhase to: back');
+        setRecordingPhase('back');
+      } else if (nextPosition === 3) {
+        console.log('🔄 Setting recordingPhase to: left');
+        setRecordingPhase('left');
+      }
       
       // Show guidance for next position (matching mobile app messages)
       const nextPos = POSITIONS[currentPosition + 1];
@@ -238,46 +430,41 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
       }, 2000);
     } else {
       // All positions completed
+      console.log('🎉 All positions completed!');
+      setRecordingPhase('complete');
       onComplete();
     }
   }, [currentPosition, onComplete]);
 
-  const handleRecordPress = () => {
-    // Only allow recording for front position when ready
-    if (currentPosition === 0 && status === 'ready' && !isRecording) {
-      setStatus('recording');
-    }
-  };
+
 
   const getStatusColor = () => {
-    switch (status) {
-      case 'detecting':
-        return '#e53935'; // Red
-      case 'ready':
-        return '#4CAF50'; // Green
-      case 'recording':
-        return '#FFD700'; // Yellow
-      case 'completed':
-        return '#4CAF50'; // Green
-      default:
-        return '#e53935';
+    console.log('🎨 Status color check:', {
+      model: !!model,
+      carDetected,
+      detectionConfidence,
+      recordingPhase,
+      phaseTimer
+    });
+    
+    // Use ML detection if available, otherwise fall back to timer logic
+    if (model && carDetected && detectionConfidence > 0.7) {
+      console.log('🎨 Status color: GREEN (ML detection)');
+      return '#4CAF50'; // Green when car detected
     }
+    
+    // Fallback to timer logic (this ensures the app works even if ML fails)
+    const shouldBeGreen = (recordingPhase === 'front' && phaseTimer >= 6) ||
+                         (recordingPhase === 'right' && phaseTimer >= 6) ||
+                         (recordingPhase === 'back' && phaseTimer >= 6) ||
+                         (recordingPhase === 'left' && phaseTimer >= 6);
+    
+    const color = shouldBeGreen ? '#4CAF50' : '#e53935';
+    console.log('🎨 Status color:', color, shouldBeGreen ? '(Timer-based)' : '(Detecting)');
+    return color; // Green when ready/recording, Red when detecting
   };
 
-  const getStatusIcon = () => {
-    switch (status) {
-      case 'detecting':
-        return <AlertCircle className="w-6 h-6" />;
-      case 'ready':
-        return <CheckCircle className="w-6 h-6" />;
-      case 'recording':
-        return <Square className="w-6 h-6" />;
-      case 'completed':
-        return <CheckCircle className="w-6 h-6" />;
-      default:
-        return <AlertCircle className="w-6 h-6" />;
-    }
-  };
+
 
   // Handle camera permission retry
   const handleRetryCamera = () => {
@@ -289,63 +476,23 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
     setTimeout(() => {
       const requestCameraPermission = async () => {
         try {
-          // Check if we're in a secure context (HTTPS or localhost)
-          if (!window.isSecureContext) {
-            setCameraError('Camera requires a secure connection (HTTPS)');
-            setCameraPermission('denied');
-            setShowPermissionRequest(true);
-            return;
-          }
-
-          // Check if getUserMedia is supported
-          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            setCameraError('Camera not supported in this browser');
-            setCameraPermission('denied');
-            setShowPermissionRequest(true);
-            return;
-          }
-
-          console.log('Retrying camera permission...');
-          
           const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: {
+            video: { 
               facingMode: 'environment',
-              width: { min: 640, ideal: 1280, max: 1920 },
-              height: { min: 480, ideal: 720, max: 1080 }
+              width: { ideal: 1920 },
+              height: { ideal: 1080 }
             } 
           });
-          
-          console.log('Camera permission granted on retry, stream:', stream);
-          
-          stream.getTracks().forEach(track => {
-            track.stop();
-            console.log('Stopped track on retry:', track);
-          });
-          
+          stream.getTracks().forEach(track => track.stop());
           setCameraPermission('granted');
         } catch (error: any) {
-          console.error('Camera permission retry error:', error);
-          
-          let errorMessage = 'Failed to access camera';
-          if (error.name === 'NotAllowedError') {
-            errorMessage = 'Camera permission denied. Please allow camera access.';
-          } else if (error.name === 'NotFoundError') {
-            errorMessage = 'No camera found on this device.';
-          } else if (error.name === 'NotSupportedError') {
-            errorMessage = 'Camera not supported in this browser.';
-          } else if (error.name === 'NotReadableError') {
-            errorMessage = 'Camera is already in use by another application.';
-          } else if (error.message) {
-            errorMessage = error.message;
-          }
-          
-          setCameraError(errorMessage);
+          setCameraError(error.message || 'Failed to access camera');
           setCameraPermission('denied');
           setShowPermissionRequest(true);
         }
       };
       requestCameraPermission();
-    }, 500);
+    }, 100);
   };
 
   // Show permission request screen
@@ -385,16 +532,6 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
               </div>
             </div>
             
-            {/* Development mode notice */}
-            {window.location.hostname === 'localhost' && (
-              <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-xl p-4 mb-6">
-                <h3 className="text-yellow-400 font-semibold mb-2">Development Mode:</h3>
-                <p className="text-sm text-gray-300">
-                  You're running on localhost. For better camera support, try accessing this app from a mobile device on the same network using the IP address shown in the terminal.
-                </p>
-              </div>
-            )}
-            
             <div className="space-y-3">
               <motion.button
                 whileHover={{ scale: 1.02 }}
@@ -403,17 +540,6 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
                 className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-xl"
               >
                 Try Again
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => {
-                  // Skip camera and go directly to buffering
-                  onComplete();
-                }}
-                className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-xl"
-              >
-                Continue Without Camera (Demo)
               </motion.button>
               <motion.button
                 whileHover={{ scale: 1.02 }}
@@ -427,6 +553,66 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
             {cameraError && (
               <p className="text-red-400 text-sm mt-4">{cameraError}</p>
             )}
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show orientation prompt for mobile devices in portrait mode
+  if (showOrientationPrompt) {
+    return (
+      <div className="relative w-full h-screen bg-black overflow-hidden">
+        <div className="absolute inset-0 flex items-center justify-center">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 max-w-md mx-4 text-center"
+          >
+            <div className="w-20 h-20 bg-orange-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+              <div className="text-4xl">📱</div>
+            </div>
+            <h2 className="text-2xl font-bold text-white mb-4">Rotate Your Device</h2>
+            <p className="text-gray-300 mb-6">
+              For the best car damage analysis experience, please rotate your device to landscape mode.
+            </p>
+            
+            <div className="bg-orange-500/20 border border-orange-500/30 rounded-xl p-4 mb-6">
+              <h3 className="text-orange-400 font-semibold mb-2">Why Landscape Mode?</h3>
+              <div className="text-left text-sm text-gray-300 space-y-2">
+                <div className="flex items-start gap-2">
+                  <span className="bg-orange-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">•</span>
+                  <span>Better camera view for car recording</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="bg-orange-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">•</span>
+                  <span>More accurate stencil alignment</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="bg-orange-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">•</span>
+                  <span>Professional recording experience</span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="space-y-3">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setShowOrientationPrompt(false)}
+                className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 px-6 rounded-xl"
+              >
+                Continue in Portrait (Not Recommended)
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={onBack}
+                className="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-xl"
+              >
+                Go Back
+              </motion.button>
+            </div>
           </motion.div>
         </div>
       </div>
@@ -454,9 +640,9 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
     );
   }
 
-  return (
+    return (
     <div className="relative w-full h-screen bg-black overflow-hidden">
-      {/* Camera View */}
+      {/* Simple Camera - No Transforms, No Scaling */}
       <div className="absolute inset-0">
         <Webcam
           ref={webcamRef}
@@ -473,52 +659,53 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
           }}
           onUserMediaError={(error) => {
             console.error('Camera error:', error);
-            setCameraError(error.message || 'Camera access failed');
+            setCameraError(typeof error === 'string' ? error : error.message || 'Camera access failed');
             setCameraPermission('denied');
             setShowPermissionRequest(true);
           }}
         />
       </div>
-
-      {/* Stencil Overlay */}
-      <div className="absolute inset-0 flex items-center justify-center">
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ zIndex: 25 }}>
         <motion.div
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5 }}
-          className="relative w-full h-full"
+          className="absolute inset-0 flex items-center justify-center"
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            right: 0,
+            width: '100%',
+            height: '100%',
+            borderRadius: 0,
+            borderWidth: 0,
+            borderColor: 'transparent',
+            backgroundColor: 'rgba(0,0,0,0.04)',
+            alignItems: 'stretch',
+            justifyContent: 'center',
+            zIndex: 20
+          }}
         >
           <img
             src={currentPosData.image}
             alt={`${currentPosData.label} stencil`}
-            className="w-full h-full object-contain"
             style={{
-              filter: `drop-shadow(0 0 20px ${getStatusColor()})`,
-              opacity: 0.8
+              width: '100%',
+              height: '100%',
+              alignSelf: 'stretch',
+
+              ...(currentPosition === 2 && {
+                height: '100%',
+                width: '70%',
+                marginLeft: '15%'
+              }),
+              filter: `drop-shadow(0 0 20px ${getStatusColor()}) brightness(0) saturate(100%) ${getStatusColor() === '#4CAF50' ? 'invert(48%) sepia(79%) saturate(2476%) hue-rotate(86deg) brightness(118%) contrast(119%)' : 'invert(27%) sepia(51%) saturate(2878%) hue-rotate(346deg) brightness(104%) contrast(97%)'}`,
+              opacity: 1,
+              objectFit: currentPosition === 0 || currentPosition === 2 ? 'fill' : 'cover'
             }}
           />
-          {/* Status overlay */}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div
-              className="w-32 h-32 border-4 rounded-full flex items-center justify-center"
-              style={{ 
-                borderColor: getStatusColor(),
-                backgroundColor: `${getStatusColor()}20`,
-                backdropFilter: 'blur(10px)'
-              }}
-            >
-              <div className="text-center">
-                <div className="text-white font-bold text-lg">
-                  {currentPosData.label}
-                </div>
-                <div className="text-white text-sm mt-1">
-                  {status === 'detecting' && 'Detecting...'}
-                  {status === 'ready' && 'Ready'}
-                  {status === 'recording' && 'Recording...'}
-                </div>
-              </div>
-            </div>
-          </div>
         </motion.div>
       </div>
 
@@ -527,102 +714,68 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
         onClick={onBack}
-        className="absolute top-8 left-6 w-12 h-12 bg-black/50 rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-colors"
+        className="absolute top-5 left-5 w-12 h-12 bg-black/50 rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-colors z-50"
       >
-        <ArrowLeft className="w-6 h-6" />
+        <ArrowLeft className="w-7 h-7" style={{ color: '#43cea2' }} />
       </motion.button>
 
-      {/* Progress Indicators */}
-      <div className="absolute top-8 right-6 flex flex-col gap-2">
-        {POSITIONS.map((pos, index) => (
-          <div
-            key={pos.id}
-            className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 ${
-              index < currentPosition
-                ? 'bg-green-500 border-green-500 text-white'
-                : index === currentPosition
-                ? `border-${status === 'detecting' ? 'red' : status === 'ready' ? 'green' : 'yellow'}-500 text-white`
-                : 'bg-gray-600 border-gray-600 text-gray-400'
-            }`}
-          >
-            {index + 1}
+
+
+      {/* Progress Indicator */}
+      <div className="absolute top-5 left-1/2 transform -translate-x-1/2 bg-black/60 text-white px-4 py-2 rounded-full z-50">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold">Step {currentPosition + 1} of 4</span>
+          <div className="flex gap-1">
+            {[0, 1, 2, 3].map((pos) => (
+              <div
+                key={pos}
+                className={`w-2 h-2 rounded-full ${
+                  pos < currentPosition 
+                    ? 'bg-green-500' 
+                    : pos === currentPosition 
+                    ? carDetected ? 'bg-green-500' : 'bg-red-500'
+                    : 'bg-gray-500'
+                }`}
+              />
+            ))}
           </div>
-        ))}
+        </div>
       </div>
 
-      {/* Recording Controls */}
-      <div className="absolute bottom-8 right-6 flex flex-col items-center gap-4">
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={handleRecordPress}
-          disabled={!(currentPosition === 0 && status === 'ready' && !isRecording)}
-          className={`w-16 h-16 rounded-full flex items-center justify-center text-white transition-all ${
-            currentPosition === 0 && status === 'ready' && !isRecording
-              ? 'bg-green-500 hover:bg-green-600'
-              : status === 'recording'
-              ? 'bg-red-500'
-              : 'bg-gray-500 cursor-not-allowed'
-          }`}
-        >
-          {getStatusIcon()}
-        </motion.button>
-        
-        {isRecording && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-red-500 text-white px-3 py-1 rounded-full text-sm font-bold"
-          >
-            Recording... {timer}s
-          </motion.div>
-        )}
-      </div>
-
-      {/* Guidance Message */}
+      {/* Clean Guidance Message */}
       <AnimatePresence>
-        {showGuidance && (
+        {showGuidance && guidanceMessage && (
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="absolute top-1/4 left-1/2 transform -translate-x-1/2 bg-black/80 text-white px-6 py-3 rounded-full"
+            className="absolute top-24 left-1/2 transform -translate-x-1/2 bg-black/80 text-white px-6 py-4 rounded-2xl shadow-lg z-50"
+            style={{
+              maxWidth: '80%',
+              textAlign: 'center'
+            }}
           >
-            {guidanceMessage}
+            <p className="text-white text-base font-semibold tracking-wide">
+              {guidanceMessage}
+            </p>
+
+            {!model && !modelLoading && (
+              <div className="mt-2 flex items-center justify-center gap-2 text-yellow-400">
+                <AlertCircle className="w-4 h-4" />
+                <span className="text-sm font-semibold">Using timer-based detection</span>
+              </div>
+            )}
+            {carDetected && detectionConfidence > 0.7 && (
+              <div className="mt-2 flex items-center justify-center gap-2 text-green-400">
+                <CheckCircle className="w-4 h-4" />
+                <span className="text-sm font-semibold">
+                  Car detected ({Math.round(detectionConfidence * 100)}% confidence)
+                </span>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Mobile Camera Instructions */}
-      {isMobile && cameraPermission === 'granted' && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="absolute bottom-32 left-4 right-4 bg-black/80 text-white p-4 rounded-xl"
-        >
-          <div className="text-center">
-            <p className="text-sm font-semibold mb-1">📱 Mobile Camera Active</p>
-            <p className="text-xs text-gray-300">
-              Point your camera at the car and follow the stencil guide. The back camera is being used.
-            </p>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Progress Bar */}
-      <div className="absolute bottom-20 left-6 right-6">
-        <div className="bg-gray-700 rounded-full h-2">
-          <motion.div
-            className="bg-blue-500 h-2 rounded-full"
-            initial={{ width: 0 }}
-            animate={{ width: `${((completedPositions.length + (status === 'recording' ? timer / 6 : 0)) / POSITIONS.length) * 100}%` }}
-            transition={{ duration: 0.3 }}
-          />
-        </div>
-        <div className="text-center text-white text-sm mt-2">
-          {completedPositions.length + 1} of {POSITIONS.length} positions
-        </div>
-      </div>
     </div>
   );
 };

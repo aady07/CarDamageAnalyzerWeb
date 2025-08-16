@@ -1,131 +1,80 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Car, CheckCircle } from 'lucide-react';
-import bufferImage from '../assets/images/buffer.png';
+import lottie from 'lottie-web';
+import testAnimation from '../assets/images/test.json';
 
 interface BufferingScreenProps {
   onComplete: () => void;
 }
 
 const BufferingScreen: React.FC<BufferingScreenProps> = ({ onComplete }) => {
+  const lottieRef = useRef<HTMLDivElement>(null);
   const [progress, setProgress] = useState(0);
-  const [isComplete, setIsComplete] = useState(false);
 
   useEffect(() => {
-    // Simulate processing progress
-    const interval = setInterval(() => {
+    // Initialize Lottie animation
+    if (lottieRef.current) {
+      const anim = lottie.loadAnimation({
+        container: lottieRef.current,
+        renderer: 'svg',
+        loop: true,
+        autoplay: true,
+        animationData: testAnimation
+      });
+
+      return () => anim.destroy();
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onComplete();
+    }, 5000);
+
+    const progressInterval = setInterval(() => {
       setProgress(prev => {
         if (prev >= 100) {
-          setIsComplete(true);
-          clearInterval(interval);
-          setTimeout(onComplete, 1000);
+          clearInterval(progressInterval);
           return 100;
         }
         return prev + 2;
       });
     }, 100);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(progressInterval);
+    };
   }, [onComplete]);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-dark-900 to-dark-800">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.8 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.5 }}
-        className="text-center"
-      >
-        {/* Car Animation */}
-        <motion.div
-          animate={{ 
-            y: [0, -10, 0],
-            rotate: [0, 5, -5, 0]
-          }}
-          transition={{ 
-            duration: 2,
-            repeat: Infinity,
-            ease: "easeInOut"
-          }}
-          className="w-48 h-48 mx-auto mb-8"
-        >
-          <img 
-            src={bufferImage} 
-            alt="Car animation" 
-            className="w-full h-full object-contain"
-          />
-        </motion.div>
+    <div className="relative w-full h-screen overflow-hidden">
+      {/* Elegant dark-to-light gradient background */}
+      <div className="absolute inset-0 bg-gradient-to-b from-[#232946] to-[#e0e7ef]"></div>
+      
+      {/* Centered content */}
+      <div className="relative z-10 flex flex-col items-center justify-center h-full">
+        {/* Lottie car animation */}
+        <div 
+          ref={lottieRef}
+          className="w-[180px] h-[180px] self-center mt-10"
+        />
 
-        {/* Progress Bar */}
-        <div className="w-64 h-3 bg-gray-700 rounded-full overflow-hidden mb-6">
+        {/* Progress bar below car */}
+        <div className="w-[180px] h-[10px] bg-gray-300 rounded-[5px] mt-8 overflow-hidden border border-[#232946] self-center">
           <motion.div
-            className="h-full bg-gradient-to-r from-blue-500 to-purple-600 rounded-full"
+            className="h-full bg-[#232946] rounded-[5px]"
             initial={{ width: 0 }}
             animate={{ width: `${progress}%` }}
-            transition={{ duration: 0.3 }}
+            transition={{ duration: 0.1 }}
           />
         </div>
 
-        {/* Status Text */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-        >
-          {isComplete ? (
-            <div className="flex items-center justify-center gap-2 text-green-400">
-              <CheckCircle className="w-6 h-6" />
-              <span className="text-lg font-semibold">Analysis Complete!</span>
-            </div>
-          ) : (
-            <div className="text-gray-300">
-              <div className="text-lg font-semibold mb-2">Processing</div>
-              <div className="text-sm">{Math.round(progress)}%</div>
-            </div>
-          )}
-        </motion.div>
-
-        {/* Processing Steps */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 1 }}
-          className="mt-8 space-y-2"
-        >
-          <div className={`flex items-center gap-3 text-sm transition-colors ${
-            progress > 20 ? 'text-green-400' : 'text-gray-500'
-          }`}>
-            <div className={`w-2 h-2 rounded-full ${
-              progress > 20 ? 'bg-green-400' : 'bg-gray-500'
-            }`} />
-            <span>Analyzing vehicle structure</span>
-          </div>
-          <div className={`flex items-center gap-3 text-sm transition-colors ${
-            progress > 40 ? 'text-green-400' : 'text-gray-500'
-          }`}>
-            <div className={`w-2 h-2 rounded-full ${
-              progress > 40 ? 'bg-green-400' : 'bg-gray-500'
-            }`} />
-            <span>Detecting damage areas</span>
-          </div>
-          <div className={`flex items-center gap-3 text-sm transition-colors ${
-            progress > 60 ? 'text-green-400' : 'text-gray-500'
-          }`}>
-            <div className={`w-2 h-2 rounded-full ${
-              progress > 60 ? 'bg-green-400' : 'bg-gray-500'
-            }`} />
-            <span>Calculating repair estimates</span>
-          </div>
-          <div className={`flex items-center gap-3 text-sm transition-colors ${
-            progress > 80 ? 'text-green-400' : 'text-gray-500'
-          }`}>
-            <div className={`w-2 h-2 rounded-full ${
-              progress > 80 ? 'bg-green-400' : 'bg-gray-500'
-            }`} />
-            <span>Generating detailed report</span>
-          </div>
-        </motion.div>
-      </motion.div>
+        {/* Processing text */}
+        <p className="text-[#232946] text-lg font-bold mt-[18px] text-center tracking-wide">
+          Processing
+        </p>
+      </div>
     </div>
   );
 };
