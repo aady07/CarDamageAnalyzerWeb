@@ -14,23 +14,22 @@ import {
   Hammer
 } from 'lucide-react';
 
-// Import images properly for production
-import damagePhoto1 from '../assets/images/1.jpeg';
-import damagePhoto2 from '../assets/images/2.jpeg';
-
 interface DamageReportProps {
   onBack: () => void;
 }
 
+// Import images from public folder
 const DAMAGE_PHOTOS = [
-  damagePhoto1,
-  damagePhoto2,
+  '/11.jpeg',
+  '/22.jpeg', 
+  '/33.jpeg',
+  '/44.jpeg'
 ];
 
 const ESTIMATE_BREAKDOWN = [
-  { label: 'Outer Door', price: 8000, icon: Wrench },
-  { label: 'Paint', price: 3000, icon: Paintbrush },
-  { label: 'Labor', price: 1000, icon: Hammer },
+  { label: 'Front Bumper Dent', price: 2500, icon: Wrench },
+  { label: 'Paint & Touch-up', price: 800, icon: Paintbrush },
+  { label: 'Labor & Alignment', price: 700, icon: Hammer },
 ];
 
 const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
@@ -61,11 +60,11 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
     const estimateTimer = setTimeout(() => {
       const interval = setInterval(() => {
         setEstimate(prev => {
-          if (prev >= 12000) {
+          if (prev >= 4000) {
             clearInterval(interval);
-            return 12000;
+            return 4000;
           }
-          return prev + 120;
+          return prev + 40;
         });
       }, 15);
     }, 1000);
@@ -81,7 +80,7 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
       try {
         await navigator.share({
           title: 'Car Damage Report',
-          text: 'Car Damage Report: Outer Door, Rs 12,000. Download your report now!',
+          text: 'Car Damage Report: Front Bumper Dent, Rs 3,000-4,000. Download your report now!',
           url: window.location.href,
         });
       } catch (error) {
@@ -89,7 +88,7 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
       }
     } else {
       // Fallback for browsers that don't support Web Share API
-      navigator.clipboard.writeText('Car Damage Report: Outer Door, Rs 12,000. Download your report now!');
+      navigator.clipboard.writeText('Car Damage Report: Front Bumper Dent, Rs 3,000-4,000. Download your report now!');
       alert('Report link copied to clipboard!');
     }
   };
@@ -97,7 +96,7 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
   const handleDownload = () => {
     // In a real app, this would generate and download a PDF report
     const link = document.createElement('a');
-    link.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent('Car Damage Report\n\nOuter Door Damage\nEstimated Cost: Rs 12,000\n\nThis is a sample report.');
+    link.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent('Car Damage Report\n\nFront Bumper Dent\nEstimated Cost: Rs 3,000-4,000\n\nThis is a sample report.');
     link.download = 'car-damage-report.txt';
     link.click();
   };
@@ -210,7 +209,7 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
             <div className="flex-1">
               <h3 className="text-red-400 font-bold mb-2">Damage Identified</h3>
               <p className="text-gray-300 text-sm leading-relaxed">
-                Front right door panel shows visible impact damage with paint scratches and minor denting.
+                Front bumper shows visible dent damage with minor paint scratches. Estimated repair cost: ₹3,000-4,000.
               </p>
             </div>
           </div>
