@@ -14,16 +14,22 @@ import {
   Hammer
 } from 'lucide-react';
 
+// Import images from assets folder
+import damagePhoto11 from '../assets/images/11.jpeg';
+import damagePhoto22 from '../assets/images/22.jpeg';
+import damagePhoto33 from '../assets/images/33.jpeg';
+import damagePhoto44 from '../assets/images/44.jpeg';
+
 interface DamageReportProps {
   onBack: () => void;
 }
 
-// Import images from public folder
+// Import images from assets folder
 const DAMAGE_PHOTOS = [
-  '/11.jpeg',
-  '/22.jpeg', 
-  '/33.jpeg',
-  '/44.jpeg'
+  damagePhoto11,
+  damagePhoto22, 
+  damagePhoto33,
+  damagePhoto44
 ];
 
 const ESTIMATE_BREAKDOWN = [
