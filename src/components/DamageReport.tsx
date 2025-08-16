@@ -14,13 +14,17 @@ import {
   Hammer
 } from 'lucide-react';
 
+// Import images properly for production
+import damagePhoto1 from '../assets/images/1.jpeg';
+import damagePhoto2 from '../assets/images/2.jpeg';
+
 interface DamageReportProps {
   onBack: () => void;
 }
 
 const DAMAGE_PHOTOS = [
-  '/src/assets/images/1.jpeg',
-  '/src/assets/images/2.jpeg',
+  damagePhoto1,
+  damagePhoto2,
 ];
 
 const ESTIMATE_BREAKDOWN = [

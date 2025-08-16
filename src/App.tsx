@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import LandingScreen from './components/LandingScreen';
+import RulesScreen from './components/RulesScreen';
 import CameraScreen from './components/CameraScreen';
 import BufferingScreen from './components/BufferingScreen';
 import DamageReport from './components/DamageReport';
 
-export type ScreenType = 'landing' | 'camera' | 'buffering' | 'report';
+export type ScreenType = 'landing' | 'rules' | 'camera' | 'buffering' | 'report';
 
 function App() {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('landing');
@@ -25,7 +26,22 @@ function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <LandingScreen onStartAnalysis={() => handleScreenChange('camera')} />
+            <LandingScreen onStartAnalysis={() => handleScreenChange('rules')} />
+          </motion.div>
+        )}
+
+        {currentScreen === 'rules' && (
+          <motion.div
+            key="rules"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <RulesScreen 
+              onStart={() => handleScreenChange('camera')}
+              onBack={() => handleScreenChange('landing')}
+            />
           </motion.div>
         )}
 

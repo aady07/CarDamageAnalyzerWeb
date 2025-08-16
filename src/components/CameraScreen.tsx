@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Webcam from 'react-webcam';
-import { ArrowLeft, Camera, Square, CheckCircle, AlertCircle, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Camera, Square, CheckCircle, AlertCircle, AlertTriangle, HelpCircle } from 'lucide-react';
 import * as tf from '@tensorflow/tfjs';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
+import CameraTutorial from './CameraTutorial';
 
 // Import car stencil images
 import frontStencil from '../assets/images/1.png';
@@ -59,6 +60,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
   const [isMobile, setIsMobile] = useState(false);
   const [isLandscape, setIsLandscape] = useState(false);
   const [showOrientationPrompt, setShowOrientationPrompt] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(true);
   
   const webcamRef = useRef<Webcam>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -202,7 +204,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
     // Detection phase - Real-world car inspection flow
   useEffect(() => {
     console.log('🔍 Detection useEffect triggered - status:', status, 'currentPosition:', currentPosition);
-    if (status === 'detecting' && currentPosition < POSITIONS.length && !completionTriggered) {
+    if (status === 'detecting' && currentPosition < POSITIONS.length && !completionTriggered && !showTutorial) {
       console.log('🚀 Starting detection phase for position:', currentPosition, 'recordingPhase:', recordingPhase);
       
       // Reset detection state for new position (only if not already completed)
@@ -258,16 +260,18 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
       // Fallback timer - if no car detected after 15 seconds, show message and proceed
       detectionTimerRef.current = setTimeout(() => {
         console.log('⏰ 15 seconds elapsed - no car detected, proceeding anyway');
-        setShowGuidance(true);
-        const positionNames = ['FRONT', 'RIGHT', 'BACK', 'LEFT'];
-        setGuidanceMessage(`${positionNames[currentPosition]} view not captured. Moving to next position in 3 seconds...`);
-        
-        // Wait 3 seconds to show the message, then move to next position
-        setTimeout(() => {
-          setStatus('ready');
-          setShowGuidance(false);
-          completePosition();
-        }, 3000);
+        if (!completionTriggered) {
+          setShowGuidance(true);
+          const positionNames = ['FRONT', 'RIGHT', 'BACK', 'LEFT'];
+          setGuidanceMessage(`${positionNames[currentPosition]} view not captured. Moving to next position in 3 seconds...`);
+          
+          // Wait 3 seconds to show the message, then move to next position
+          setTimeout(() => {
+            setStatus('ready');
+            setShowGuidance(false);
+            completePosition();
+          }, 3000);
+        }
         
         clearInterval(detectionInterval);
       }, 15000); // Increased to 15 seconds for real-world movement
@@ -285,7 +289,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
         clearTimeout(detectionTimerRef.current);
       }
     };
-  }, [status, currentPosition, model, modelLoading]);
+  }, [status, currentPosition, model, modelLoading, showTutorial]);
 
   // Car detection function
   const detectCar = useCallback(async () => {
@@ -379,7 +383,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
     console.log('✅ Completing position:', currentPosition);
     
     // Prevent multiple completions
-    if (currentPosition >= POSITIONS.length) {
+    if (currentPosition >= POSITIONS.length || completedPositions.includes(currentPosition)) {
       console.log('⚠️ Position already completed, skipping');
       return;
     }
@@ -665,49 +669,51 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
           }}
         />
       </div>
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ zIndex: 25 }}>
-        <motion.div
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5 }}
-          className="absolute inset-0 flex items-center justify-center"
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            bottom: 0,
-            right: 0,
-            width: '100%',
-            height: '100%',
-            borderRadius: 0,
-            borderWidth: 0,
-            borderColor: 'transparent',
-            backgroundColor: 'rgba(0,0,0,0.04)',
-            alignItems: 'stretch',
-            justifyContent: 'center',
-            zIndex: 20
-          }}
-        >
-          <img
-            src={currentPosData.image}
-            alt={`${currentPosData.label} stencil`}
+      {status === 'detecting' && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ zIndex: 25 }}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5 }}
+            className="absolute inset-0 flex items-center justify-center"
             style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              bottom: 0,
+              right: 0,
               width: '100%',
               height: '100%',
-              alignSelf: 'stretch',
-
-              ...(currentPosition === 2 && {
-                height: '100%',
-                width: '70%',
-                marginLeft: '15%'
-              }),
-              filter: `drop-shadow(0 0 20px ${getStatusColor()}) brightness(0) saturate(100%) ${getStatusColor() === '#4CAF50' ? 'invert(48%) sepia(79%) saturate(2476%) hue-rotate(86deg) brightness(118%) contrast(119%)' : 'invert(27%) sepia(51%) saturate(2878%) hue-rotate(346deg) brightness(104%) contrast(97%)'}`,
-              opacity: 1,
-              objectFit: currentPosition === 0 || currentPosition === 2 ? 'fill' : 'cover'
+              borderRadius: 0,
+              borderWidth: 0,
+              borderColor: 'transparent',
+              backgroundColor: 'rgba(0,0,0,0.04)',
+              alignItems: 'stretch',
+              justifyContent: 'center',
+              zIndex: 20
             }}
-          />
-        </motion.div>
-      </div>
+          >
+            <img
+              src={currentPosData.image}
+              alt={`${currentPosData.label} stencil`}
+              style={{
+                width: '100%',
+                height: '100%',
+                alignSelf: 'stretch',
+
+                ...(currentPosition === 2 && {
+                  height: '100%',
+                  width: '70%',
+                  marginLeft: '15%'
+                }),
+                filter: `drop-shadow(0 0 20px ${getStatusColor()}) brightness(0) saturate(100%) ${getStatusColor() === '#4CAF50' ? 'invert(48%) sepia(79%) saturate(2476%) hue-rotate(86deg) brightness(118%) contrast(119%)' : 'invert(27%) sepia(51%) saturate(2878%) hue-rotate(346deg) brightness(104%) contrast(97%)'}`,
+                opacity: 1,
+                objectFit: currentPosition === 0 || currentPosition === 2 ? 'fill' : 'cover'
+              }}
+            />
+          </motion.div>
+        </div>
+      )}
 
       {/* Back Button */}
       <motion.button
@@ -717,6 +723,16 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
         className="absolute top-5 left-5 w-12 h-12 bg-black/50 rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-colors z-50"
       >
         <ArrowLeft className="w-7 h-7" style={{ color: '#43cea2' }} />
+      </motion.button>
+
+      {/* Help Button */}
+      <motion.button
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        onClick={() => setShowTutorial(true)}
+        className="absolute top-5 right-5 w-12 h-12 bg-black/50 rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-colors z-50"
+      >
+        <HelpCircle className="w-7 h-7" style={{ color: '#43cea2' }} />
       </motion.button>
 
 
@@ -773,6 +789,33 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
                 </span>
               </div>
             )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Tutorial Overlay */}
+      <AnimatePresence>
+        {showTutorial && (
+          <CameraTutorial
+            onComplete={() => setShowTutorial(false)}
+            onSkip={() => setShowTutorial(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Tutorial Active Indicator */}
+      <AnimatePresence>
+        {showTutorial && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-blue-500/90 text-white px-4 py-2 rounded-full z-40"
+          >
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+              <span className="text-sm font-semibold">Tutorial Active - Detection Paused</span>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
