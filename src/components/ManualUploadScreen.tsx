@@ -343,26 +343,7 @@ const ManualUploadScreen: React.FC<ManualUploadScreenProps> = ({ onComplete, onB
           </motion.div>
         )}
 
-        {/* Debug Info (only show on mobile or when there are errors) */}
-        {(isMobile || errorMessage || debugInfo) && debugInfo && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-4 mb-4"
-          >
-            <div className="flex items-start">
-              <div className="w-10 h-10 bg-blue-500/20 rounded-full flex items-center justify-center mr-4 flex-shrink-0">
-                <HelpCircle className="w-5 h-5 text-blue-400" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-blue-400 font-bold mb-2">Debug Info</h3>
-                <pre className="text-gray-300 text-xs leading-relaxed whitespace-pre-wrap font-mono">
-                  {debugInfo}
-                </pre>
-              </div>
-            </div>
-          </motion.div>
-        )}
+
 
         {/* Action Buttons */}
         <motion.div
