@@ -5,9 +5,11 @@ import { Lock, Mail } from 'lucide-react';
 
 interface LoginProps {
   onSuccess: () => void;
+  onLogout?: () => void;
+  showLogout?: boolean;
 }
 
-const Login: React.FC<LoginProps> = ({ onSuccess }) => {
+const Login: React.FC<LoginProps> = ({ onSuccess, onLogout, showLogout }) => {
   const { signIn, loading } = useCognitoAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,12 +31,22 @@ const Login: React.FC<LoginProps> = ({ onSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-dark-900 via-dark-800 to-dark-900 flex items-center justify-center p-6">
+    <div className="fixed inset-0 flex items-center justify-center p-6 z-40">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="glass-effect rounded-2xl p-8 w-full max-w-md"
+        className="glass-effect rounded-2xl p-6 md:p-8 w-full max-w-md -translate-y-6 md:-translate-y-3 pointer-events-auto"
       >
+        <div className="flex items-center justify-end mb-4">
+          {showLogout && onLogout && (
+            <button
+              onClick={onLogout}
+              className="text-white/90 hover:text-white text-xs md:text-sm font-semibold bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg px-3 py-1.5"
+            >
+              Logout
+            </button>
+          )}
+        </div>
         <h1 className="text-white text-2xl font-bold mb-6 text-center">Sign in to continue</h1>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

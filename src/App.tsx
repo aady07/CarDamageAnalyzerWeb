@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import LandingScreen from './components/LandingScreen';
 import RulesScreen from './components/RulesScreen';
@@ -14,7 +14,7 @@ export type ScreenType = 'landing' | 'rules' | 'camera' | 'buffering' | 'report'
 function App() {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('landing');
   const [vehicleDetails, setVehicleDetails] = useState<{ make: string; model: string; regNumber: string } | null>(null);
-  const { isAuthenticated, user, signOut, loading } = useCognitoAuth();
+  const { isAuthenticated, signOut } = useCognitoAuth();
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
   const [needsAuth, setNeedsAuth] = useState(false);
 
@@ -32,9 +32,7 @@ function App() {
     setCurrentScreen(screen);
   };
 
-  const handleScreenChange = (screen: ScreenType) => {
-    setCurrentScreen(screen);
-  };
+  
 
   const checkAuth = useCallback(async () => {
     try {
@@ -59,20 +57,20 @@ function App() {
 
   return (
     <div className="min-h-screen gradient-bg overflow-hidden">
-      {/* App Top Bar: logo always visible; logout only when authenticated */}
-      <div className="fixed top-0 left-0 right-0 z-50 px-4 py-3 flex items-center justify-between bg-black/30 backdrop-blur-md border-b border-white/10">
-        <div className="flex items-center gap-2">
-          <img src={logo} alt="Logo" className="h-8 w-auto" />
+      {/* Top Row (hidden on camera screen to maximize space) */}
+      {currentScreen !== 'camera' && (
+        <div className="px-8 pt-0 flex items-center justify-between">
+          <img src={logo} alt="Logo" className="h-32 md:h-32 w-auto ml-0 md:ml-6" />
+          {isAuthed && (
+            <button
+              onClick={handleLogout}
+              className="text-white/90 hover:text-white text-sm font-semibold bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg px-4 py-2"
+            >
+              Logout
+            </button>
+          )}
         </div>
-        {isAuthed && (
-          <button
-            onClick={handleLogout}
-            className="text-white/90 hover:text-white text-sm font-semibold bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg px-3 py-1.5"
-          >
-            Logout
-          </button>
-        )}
-      </div>
+      )}
       <AnimatePresence mode="wait">
         {/* Not authenticated: show login */}
         {isAuthed === false && (
@@ -82,10 +80,13 @@ function App() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
-            <Login onSuccess={async () => {
+            <Login 
+              showLogout={false}
+              onSuccess={async () => {
               await checkAuth();
               setCurrentScreen('landing');
-            }} />
+            }} 
+            />
           </motion.div>
         )}
 
@@ -172,11 +173,15 @@ function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.4 }}
           >
-            <Login onSuccess={async () => {
+            <Login 
+              showLogout={isAuthed === true}
+              onLogout={handleLogout}
+              onSuccess={async () => {
               setNeedsAuth(false);
               const ok = await isAuthenticated();
               if (ok) setCurrentScreen('rules');
-            }} />
+            }} 
+            />
           </motion.div>
         )}
         </>

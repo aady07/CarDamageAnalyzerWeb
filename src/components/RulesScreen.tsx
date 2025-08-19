@@ -46,7 +46,7 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-dark-900 via-dark-800 to-dark-900">
+    <div className="min-h-screen gradient-bg">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}

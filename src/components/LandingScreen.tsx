@@ -36,7 +36,7 @@ const LandingScreen: React.FC<LandingScreenProps> = ({ onStartAnalysis }) => {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+      <div className="flex-1 flex flex-col items-center justify-start px-6 pt-8 pb-12">
         {/* Header Card */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}

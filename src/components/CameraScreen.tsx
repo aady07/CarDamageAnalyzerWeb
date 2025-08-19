@@ -375,8 +375,6 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     }
     
     setCompletedPositions(prev => [...prev, currentPosition]);
-    // Reset stencil color for next step
-    setIsStencilGreen(false);
     
     if (currentPosition < POSITIONS.length - 1) {
       // Move to next position
@@ -418,7 +416,9 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       
       // Give the user 4 seconds to move before detection resumes
       setTimeout(() => {
+        // After guidance period, return to detection and switch stencil back to red
         setShowGuidance(false);
+        setIsStencilGreen(false);
         setStatus('detecting');
       }, 4000);
     } else {
