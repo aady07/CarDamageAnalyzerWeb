@@ -6,6 +6,7 @@ import * as tf from '@tensorflow/tfjs';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import CameraTutorial from './CameraTutorial';
 import { getPresignedUploadUrl, uploadFileToS3, startS3Processing, dataUrlToJpegBlob } from '../services/api/uploadService';
+import { useUploadLimitsContext } from '../contexts/UploadLimitsContext';
 
 // Import car stencil images
 import frontStencil from '../assets/images/1.png';
@@ -40,6 +41,7 @@ const POSITIONS: PositionData[] = [
 const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete, onBack }) => {
   const [currentPosition, setCurrentPosition] = useState(0);
   const [status, setStatus] = useState<Status>('detecting');
+  const { canPerformAssessment, limitInfo } = useUploadLimitsContext();
   
   const [showGuidance, setShowGuidance] = useState(false);
   const [guidanceMessage, setGuidanceMessage] = useState('');
@@ -671,6 +673,56 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       </div>
     );
   }
+
+    // Check if user can perform assessment
+    if (!canPerformAssessment) {
+      return (
+        <div className="relative w-full h-screen bg-black overflow-hidden">
+          <div className="absolute inset-0 flex items-center justify-center">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 max-w-md mx-4 text-center"
+            >
+              <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+                <AlertTriangle className="w-10 h-10 text-red-400" />
+              </div>
+              <h2 className="text-2xl font-bold text-white mb-4">Upload Limit Reached</h2>
+              <p className="text-gray-300 mb-6">
+                You don't have enough uploads remaining to perform a complete car damage assessment. 
+                Each assessment requires 4 uploads.
+              </p>
+              
+              {limitInfo && (
+                <div className="bg-red-500/20 border border-red-500/30 rounded-xl p-4 mb-6">
+                  <div className="text-left text-sm text-gray-300 space-y-2">
+                    <div className="flex justify-between">
+                      <span>Remaining uploads:</span>
+                      <span className="text-red-400 font-semibold">{limitInfo.stats.remainingUploads}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Required for assessment:</span>
+                      <span className="text-white font-semibold">4</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              <div className="space-y-3">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={onBack}
+                  className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-xl"
+                >
+                  Go Back
+                </motion.button>
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      );
+    }
 
     return (
     <div className="relative w-full h-screen bg-black overflow-hidden">

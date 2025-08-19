@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowRight, Shield, Camera, Car, Clock, AlertTriangle, CheckCircle, User, Upload } from 'lucide-react';
+import UploadLimitsDisplay from './UploadLimitsDisplay';
+import { useUploadLimitsContext } from '../contexts/UploadLimitsContext';
 
 interface RulesScreenProps {
   onStart: (vehicleDetails: { make: string; model: string; regNumber: string }) => void;
@@ -13,6 +15,7 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onManualUpload, onBa
   const [vehicleMake, setVehicleMake] = useState('');
   const [vehicleModel, setVehicleModel] = useState('');
   const [vehicleRegNumber, setVehicleRegNumber] = useState('');
+  const { canPerformAssessment } = useUploadLimitsContext();
   const rules = [
     {
       icon: Camera,
@@ -106,6 +109,16 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onManualUpload, onBa
           ))}
         </div>
 
+        {/* Upload Limits Display */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.6 }}
+          className="mb-6"
+        >
+          <UploadLimitsDisplay />
+        </motion.div>
+
         {/* Important Notice */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -135,23 +148,33 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onManualUpload, onBa
           className="space-y-3"
         >
           <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => setShowVehicleForm(true)}
-            className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold py-4 px-6 rounded-2xl flex items-center justify-center gap-3"
+            whileHover={{ scale: canPerformAssessment ? 1.02 : 1 }}
+            whileTap={{ scale: canPerformAssessment ? 0.98 : 1 }}
+            onClick={() => canPerformAssessment && setShowVehicleForm(true)}
+            disabled={!canPerformAssessment}
+            className={`w-full font-bold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 ${
+              canPerformAssessment 
+                ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white' 
+                : 'bg-gray-600/50 text-gray-400 cursor-not-allowed'
+            }`}
           >
             <Camera className="w-5 h-5" />
-            Start Analysis
+            {canPerformAssessment ? 'Start Analysis' : 'Insufficient Uploads'}
           </motion.button>
           
           <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={onManualUpload}
-            className="w-full bg-white/20 border border-white/30 text-white font-semibold py-4 px-6 rounded-2xl flex items-center justify-center gap-3"
+            whileHover={{ scale: canPerformAssessment ? 1.02 : 1 }}
+            whileTap={{ scale: canPerformAssessment ? 0.98 : 1 }}
+            onClick={() => canPerformAssessment && onManualUpload()}
+            disabled={!canPerformAssessment}
+            className={`w-full font-semibold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 ${
+              canPerformAssessment 
+                ? 'bg-white/20 border border-white/30 text-white' 
+                : 'bg-gray-600/50 border border-gray-600/50 text-gray-400 cursor-not-allowed'
+            }`}
           >
             <Upload className="w-5 h-5" />
-            Manual Upload (if not using camera)
+            {canPerformAssessment ? 'Manual Upload (if not using camera)' : 'Manual Upload Disabled'}
           </motion.button>
           
           <motion.button
