@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, 
@@ -9,42 +9,149 @@ import {
   AlertCircle,
   Maximize2,
   X,
-  Wrench,
-  Paintbrush,
-  Hammer
+  RefreshCw
 } from 'lucide-react';
+import { fetchModelImageBlob, fetchClaimResults, ClaimResults } from '../services/api/claimService';
 
-// Import images from assets folder
-import damagePhoto11 from '../assets/images/11.jpeg';
-import damagePhoto22 from '../assets/images/22.jpeg';
-import damagePhoto33 from '../assets/images/33.jpeg';
-import damagePhoto44 from '../assets/images/44.jpeg';
+// Helpers to parse price ranges and map confidence
+function parsePriceRangeToMean(price: string | number): number {
+  if (typeof price === 'number') return price || 0;
+  if (!price) return 0;
+  const cleaned = String(price).replace(/[^0-9\-]/g, '');
+  const parts = cleaned
+    .split('-')
+    .map((v) => parseInt(v, 10))
+    .filter((n) => !isNaN(n));
+  if (parts.length === 0) return 0;
+  if (parts.length === 1) return parts[0];
+  const [min, max] = [Math.min(parts[0], parts[1]), Math.max(parts[0], parts[1])];
+  return Math.round((min + max) / 2);
+}
+
+function confidenceToPercent(conf?: string): number {
+  const c = (conf || '').toLowerCase();
+  if (c.startsWith('low')) return 40;
+  if (c.startsWith('medium')) return 65;
+  if (c.startsWith('high')) return 90;
+  return 75;
+}
 
 interface DamageReportProps {
   onBack: () => void;
 }
 
-// Import images from assets folder
-const DAMAGE_PHOTOS = [
-  damagePhoto11,
-  damagePhoto22, 
-  damagePhoto33,
-  damagePhoto44
-];
-
-const ESTIMATE_BREAKDOWN = [
-  { label: 'Front Bumper Dent', price: 2500, icon: Wrench },
-  { label: 'Paint & Touch-up', price: 800, icon: Paintbrush },
-  { label: 'Labor & Alignment', price: 700, icon: Hammer },
-];
+// Live data will be loaded from claim APIs
 
 const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
   const [progress, setProgress] = useState(0);
   const [verified, setVerified] = useState(false);
   const [showCheck, setShowCheck] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<number | null>(null);
-  const [estimate, setEstimate] = useState(0);
+  const [displayEstimate, setDisplayEstimate] = useState(0);
+  const [targetEstimate, setTargetEstimate] = useState(0);
   const [carouselIndex, setCarouselIndex] = useState(0);
+  const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [costings, setCostings] = useState<Array<{ part: string; price: number; confidence?: string }>>([]);
+  const [meanCost, setMeanCost] = useState<number>(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const claimIds = useMemo<number[]>(() => {
+    try {
+      const ids = localStorage.getItem('recentClaimIds');
+      if (!ids) return [];
+      const parsed = JSON.parse(ids) as number[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const log = useCallback((line: string) => {
+    console.log(`[DAMAGE-REPORT] ${line}`);
+  }, []);
+
+  // Fetch processed images and results for recent claims
+  const fetchResults = useCallback(async () => {
+    if (!claimIds.length) return;
+    setIsRefreshing(true);
+    log(`Fetching results for ${claimIds.length} claims...`);
+    
+    try {
+      // Fetch images for each claim ID (2 images per claim)
+      const imagePromises: Promise<{ claimId: number; model: 1 | 2; blob: Blob | null }>[] = [];
+      
+      claimIds.forEach((claimId) => {
+        // Model 1 image for this claim
+        imagePromises.push(
+          fetchModelImageBlob(claimId, 1)
+            .then(blob => ({ claimId, model: 1 as const, blob }))
+            .catch(() => ({ claimId, model: 1 as const, blob: null }))
+        );
+        
+        // Model 2 image for this claim
+        imagePromises.push(
+          fetchModelImageBlob(claimId, 2)
+            .then(blob => ({ claimId, model: 2 as const, blob }))
+            .catch(() => ({ claimId, model: 2 as const, blob: null }))
+        );
+      });
+      
+      const imageResults = await Promise.all(imagePromises);
+      
+      // Create URLs only for successful image fetches
+      const validImages = imageResults
+        .filter(result => result.blob !== null)
+        .map(result => ({
+          url: URL.createObjectURL(result.blob!),
+          claimId: result.claimId,
+          model: result.model,
+          label: `Claim ${result.claimId} - Model ${result.model}`
+        }));
+      
+      setImageUrls(validImages.map(img => img.url));
+      log(`Successfully loaded ${validImages.length} processed images from ${claimIds.length} claims`);
+      
+      // (logs only in console)
+
+      // Fetch claim results for costings
+      const results = await Promise.all(
+        claimIds.map((id) => fetchClaimResults(id).catch(() => null))
+      );
+      const allCostings = results
+        .filter((r): r is NonNullable<typeof r> => !!r)
+        .flatMap((r) => r.costings || [])
+        .map((c) => ({
+          part: c.part,
+          price: parsePriceRangeToMean(c.price as any),
+          confidence: c.confidence as string | undefined,
+        }));
+      setCostings(allCostings);
+      log(`Processed ${allCostings.length} costings from ${results.filter(r => r).length} claims`);
+
+      const total = allCostings.reduce((sum, c) => sum + (Number(c.price) || 0), 0);
+      setTargetEstimate(total);
+
+      const perClaimTotals: number[] = (results as (ClaimResults | null)[])
+        .filter((r): r is ClaimResults => !!r)
+        .map((r) => (r.costings || [])
+          .reduce((sum, c) => sum + parsePriceRangeToMean(c.price as any), 0)
+        );
+      if (perClaimTotals.length) {
+        const mean = perClaimTotals.reduce((a, b) => a + b, 0) / perClaimTotals.length;
+        setMeanCost(mean);
+        log(`Calculated mean cost per claim: ₹${Math.round(mean).toLocaleString()}`);
+      }
+      
+      log(`Total estimated cost: ₹${total.toLocaleString()}`);
+    } catch (error) {
+      log(`Error fetching results: ${String(error)}`);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [claimIds, log]);
+
+  useEffect(() => {
+    fetchResults();
+  }, [fetchResults]);
 
   // Animate progress and verification
   useEffect(() => {
@@ -62,24 +169,30 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
       }, 40);
     }, 500);
 
-    // Animate estimate count-up
-    const estimateTimer = setTimeout(() => {
-      const interval = setInterval(() => {
-        setEstimate(prev => {
-          if (prev >= 4000) {
-            clearInterval(interval);
-            return 4000;
-          }
-          return prev + 40;
-        });
-      }, 15);
-    }, 1000);
-
     return () => {
       clearTimeout(progressTimer);
-      clearTimeout(estimateTimer);
     };
   }, []);
+
+  // Animate display estimate when target changes
+  useEffect(() => {
+    const target = Math.max(targetEstimate, 0);
+    if (target <= 0) {
+      setDisplayEstimate(0);
+      return;
+    }
+    const step = Math.max(Math.round(target / 80), 20);
+    const interval = setInterval(() => {
+      setDisplayEstimate(prev => {
+        if (prev >= target) {
+          clearInterval(interval);
+          return target;
+        }
+        return Math.min(prev + step, target);
+      });
+    }, 15);
+    return () => clearInterval(interval);
+  }, [targetEstimate]);
 
   const handleShare = async () => {
     if (navigator.share) {
@@ -156,11 +269,13 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
           </div>
         </motion.div>
 
+
+
         {/* Progress Section */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
+          transition={{ delay: 0.25 }}
           className="mb-6"
         >
           <h3 className="text-white font-bold mb-4">Assessment Progress</h3>
@@ -201,11 +316,11 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
           </div>
         </motion.div>
 
-        {/* Damage Alert */}
+        {/* Damage Alert (summary) */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
+          transition={{ delay: 0.35 }}
           className="bg-red-500/10 border border-red-500/20 rounded-2xl p-6 mb-6"
         >
           <div className="flex">
@@ -215,7 +330,7 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
             <div className="flex-1">
               <h3 className="text-red-400 font-bold mb-2">Damage Identified</h3>
               <p className="text-gray-300 text-sm leading-relaxed">
-                Front bumper shows visible dent damage with minor paint scratches. Estimated repair cost: ₹3,000-4,000.
+                Estimated repair cost: ₹{displayEstimate.toLocaleString()} (aggregated from processed claims)
               </p>
             </div>
           </div>
@@ -225,52 +340,91 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
+          transition={{ delay: 0.45 }}
           className="mb-6"
         >
           <h3 className="text-white font-bold mb-4">Damage Documentation</h3>
-          <div className="flex gap-4 overflow-x-auto pb-4">
-            {DAMAGE_PHOTOS.map((photo, index) => (
-              <motion.div
-                key={index}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => setSelectedPhoto(index)}
-                className="relative w-80 h-60 rounded-2xl overflow-hidden flex-shrink-0 cursor-pointer"
-              >
-                <img
-                  src={photo}
-                  alt={`Damage photo ${index + 1}`}
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
-                  <span className="text-white font-semibold">Image {index + 1}</span>
-                  <Maximize2 className="w-4 h-4 text-white" />
-                </div>
-              </motion.div>
-            ))}
-          </div>
+          {imageUrls.length === 0 ? (
+            <div className="glass-effect rounded-2xl p-6">
+              <div className="text-center text-gray-400">
+                <p>No processed images available yet.</p>
+                <p className="text-sm mt-2">Images will appear here once processing is complete.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-4 overflow-x-auto pb-4">
+              {imageUrls.map((photo, index) => (
+                <motion.div
+                  key={index}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setSelectedPhoto(index)}
+                  className="relative w-80 h-60 rounded-2xl overflow-hidden flex-shrink-0 cursor-pointer"
+                >
+                  <img
+                    src={photo}
+                    alt={`Processed damage analysis ${index + 1}`}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      // Hide broken images
+                      const target = e.target as HTMLImageElement;
+                      target.style.display = 'none';
+                    }}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                  <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
+                    <span className="text-white font-semibold">Analysis {index + 1}</span>
+                    <Maximize2 className="w-4 h-4 text-white" />
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
         </motion.div>
 
-        {/* Estimate Breakdown */}
+        {/* Estimate Breakdown (from API) */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6 }}
-          className="mb-8"
+          transition={{ delay: 0.55 }}
+          className="mb-6"
         >
-          <h3 className="text-white font-bold mb-4">Repair Estimate</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-white font-bold">Repair Estimate</h3>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              disabled={isRefreshing}
+              onClick={fetchResults}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold ${
+                isRefreshing
+                  ? 'bg-blue-500/40 text-white/60 cursor-not-allowed'
+                  : 'bg-blue-500 hover:bg-blue-600 text-white'
+              }`}
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? 'Refreshing...' : 'Refresh'}
+            </motion.button>
+          </div>
           <div className="glass-effect rounded-2xl p-6">
-            {ESTIMATE_BREAKDOWN.map((item, index) => (
+            {meanCost > 0 && (
+              <div className="mb-4 flex items-center justify-between">
+                <span className="text-gray-300">Mean per-claim total ({claimIds.length} claims)</span>
+                <span className="text-blue-400 font-bold">₹{Math.round(meanCost).toLocaleString()}</span>
+              </div>
+            )}
+            {(!costings.length) && (
+              <div className="text-gray-400 text-sm">No costings yet. Processing may still be underway.</div>
+            )}
+            {costings.map((item, index) => (
               <div key={index} className="flex items-center justify-between mb-4 last:mb-0">
                 <div className="flex items-center">
                   <div className="w-9 h-9 bg-blue-500/20 rounded-full flex items-center justify-center mr-3">
-                    <item.icon className="w-4 h-4 text-blue-400" />
+                    <span className="text-blue-400 text-[10px] font-bold uppercase">{item.confidence || 'n/a'}</span>
                   </div>
-                  <span className="text-white font-semibold">{item.label}</span>
+                  <span className="text-white font-semibold">{item.part || 'Part'}</span>
                 </div>
-                <span className="text-gray-300 font-bold">₹{item.price.toLocaleString()}</span>
+                <span className="text-gray-300 font-bold">₹{Number(item.price || 0).toLocaleString()}</span>
               </div>
             ))}
             
@@ -284,17 +438,19 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
                 <span className="text-white font-bold text-lg">Total Amount</span>
               </div>
               <span className="text-green-400 font-bold text-2xl">
-                ₹{estimate.toLocaleString()}
+                ₹{displayEstimate.toLocaleString()}
               </span>
             </div>
           </div>
         </motion.div>
 
+        {/* Logs removed for production UI */}
+
         {/* Action Buttons */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7 }}
+          transition={{ delay: 0.8 }}
           className="space-y-3"
         >
           <motion.button
@@ -321,7 +477,7 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
 
       {/* Photo Modal */}
       <AnimatePresence>
-        {selectedPhoto !== null && (
+        {selectedPhoto !== null && imageUrls[selectedPhoto] && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -337,8 +493,8 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
               onClick={(e) => e.stopPropagation()}
             >
               <img
-                src={DAMAGE_PHOTOS[selectedPhoto]}
-                alt={`Damage photo ${selectedPhoto + 1}`}
+                src={imageUrls[selectedPhoto]}
+                alt={`Claim ${claimIds[Math.floor(selectedPhoto / 2)]} - Model ${(selectedPhoto % 2) + 1} processed image`}
                 className="w-full h-auto rounded-2xl"
               />
               <motion.button

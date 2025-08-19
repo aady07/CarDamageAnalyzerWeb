@@ -14,6 +14,9 @@ export default defineConfig(({ command, mode }) => {
   
   return {
     plugins: [react()],
+    define: {
+      global: 'globalThis',
+    },
     server: {
       port: 3000,
       host: '0.0.0.0', // Allow external connections

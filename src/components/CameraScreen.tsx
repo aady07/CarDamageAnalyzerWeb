@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Webcam from 'react-webcam';
-import { ArrowLeft, Camera, Square, CheckCircle, AlertCircle, AlertTriangle, HelpCircle } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, HelpCircle, Hand } from 'lucide-react';
 import * as tf from '@tensorflow/tfjs';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import CameraTutorial from './CameraTutorial';
+import { getPresignedUploadUrl, uploadFileToS3, startS3Processing, dataUrlToJpegBlob } from '../services/api/uploadService';
 
 // Import car stencil images
 import frontStencil from '../assets/images/1.png';
@@ -13,6 +14,7 @@ import backStencil from '../assets/images/3.png';
 import leftStencil from '../assets/images/4.png';
 
 interface CameraScreenProps {
+  vehicleDetails: { make: string; model: string; regNumber: string } | null;
   onComplete: () => void;
   onBack: () => void;
 }
@@ -35,11 +37,10 @@ const POSITIONS: PositionData[] = [
   { id: 'left', label: 'Left', image: leftStencil, angle: 90, color: '#9C27B0' }
 ];
 
-const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
+const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete, onBack }) => {
   const [currentPosition, setCurrentPosition] = useState(0);
   const [status, setStatus] = useState<Status>('detecting');
-  const [timer, setTimer] = useState(0);
-  const [isRecording, setIsRecording] = useState(false);
+  
   const [showGuidance, setShowGuidance] = useState(false);
   const [guidanceMessage, setGuidanceMessage] = useState('');
   const [completedPositions, setCompletedPositions] = useState<number[]>([]);
@@ -47,25 +48,30 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
   
   // Mobile app variables
   const [recordingPhase, setRecordingPhase] = useState<'idle' | 'front' | 'right' | 'back' | 'left' | 'complete'>('front');
-  const [phaseTimer, setPhaseTimer] = useState(0);
   
   // Car detection variables
   const [model, setModel] = useState<cocoSsd.ObjectDetection | null>(null);
   const [modelLoading, setModelLoading] = useState(false);
   const [carDetected, setCarDetected] = useState(false);
-  const [detectionConfidence, setDetectionConfidence] = useState(0);
+  // Confidence is not shown in UI; omit state to reduce noise
   const [completionTriggered, setCompletionTriggered] = useState(false);
   const [showPermissionRequest, setShowPermissionRequest] = useState(false);
   const [cameraError, setCameraError] = useState<string>('');
   const [isMobile, setIsMobile] = useState(false);
-  const [isLandscape, setIsLandscape] = useState(false);
+  // Track orientation implicitly via window size check; no state needed
   const [showOrientationPrompt, setShowOrientationPrompt] = useState(false);
   const [showTutorial, setShowTutorial] = useState(true);
+  // Capture & upload state
+  // Countdown removed in favor of a calm, steady capture flow
+  const [isUploading, setIsUploading] = useState(false); // kept for behavior control; UI hidden
+  const [isStencilGreen, setIsStencilGreen] = useState(false);
+  
   
   const webcamRef = useRef<Webcam>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  
   const detectionTimerRef = useRef<NodeJS.Timeout | null>(null);
   const detectCarRef = useRef<(() => Promise<boolean>) | null>(null);
+  const greenDelayRef = useRef<NodeJS.Timeout | null>(null);
 
   const currentPosData = POSITIONS[currentPosition] || POSITIONS[0]; // Fallback to first position if out of bounds
 
@@ -107,8 +113,6 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
     // Check orientation
     const checkOrientation = () => {
       const isLandscapeMode = window.innerWidth > window.innerHeight;
-      setIsLandscape(isLandscapeMode);
-      
       // Show orientation prompt for mobile devices in portrait mode
       if (isMobile && !isLandscapeMode) {
         setShowOrientationPrompt(true);
@@ -209,9 +213,8 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
       
       // Reset detection state for new position (only if not already completed)
       if (!carDetected) {
-        setPhaseTimer(0);
+        // reset any previous pacing timers (no-op now)
         setCarDetected(false);
-        setDetectionConfidence(0);
         setShowGuidance(true);
       }
       
@@ -237,20 +240,24 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
             
             // Set flag to prevent multiple completions
             setCompletionTriggered(true);
-            
-            // Clear the detection interval to stop further detection
+            // Stop further detection
             clearInterval(detectionInterval);
-            
-            // Show success message and keep stencil green
-            setShowGuidance(true);
-            const positionNames = ['FRONT', 'RIGHT', 'BACK', 'LEFT'];
-            setGuidanceMessage(`${positionNames[currentPosition]} view captured! Moving to next position in 5 seconds...`);
-            
-            // Keep stencil green for 5 seconds so user can see the success
-            console.log('🔄 Detection interval: Keeping stencil green for 5 seconds');
-            setTimeout(() => {
-              completePosition();
-            }, 5000); // Wait 5 seconds after detection before moving to next position
+            // Clear fallback timer if running
+            if (detectionTimerRef.current) {
+              clearTimeout(detectionTimerRef.current);
+              detectionTimerRef.current = null;
+            }
+            // UX: wait 2 seconds before turning stencil green, then capture & upload
+            if (greenDelayRef.current) {
+              clearTimeout(greenDelayRef.current);
+            }
+            greenDelayRef.current = setTimeout(() => {
+              setIsStencilGreen(true);
+              // Show calm guidance during upload
+              setGuidanceMessage('Keep steady');
+              setShowGuidance(true);
+              triggerCaptureAndUpload();
+            }, 2000);
           }
         } else {
           console.log('🔄 Detection interval: Model not ready or completion triggered - model:', !!model, 'loading:', modelLoading, 'ref:', !!detectCarRef.current, 'completionTriggered:', completionTriggered);
@@ -281,12 +288,20 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
         if (detectionTimerRef.current) {
           clearTimeout(detectionTimerRef.current);
         }
+        if (greenDelayRef.current) {
+          clearTimeout(greenDelayRef.current);
+          greenDelayRef.current = null;
+        }
       };
     }
 
     return () => {
       if (detectionTimerRef.current) {
         clearTimeout(detectionTimerRef.current);
+      }
+      if (greenDelayRef.current) {
+        clearTimeout(greenDelayRef.current);
+        greenDelayRef.current = null;
       }
     };
   }, [status, currentPosition, model, modelLoading, showTutorial]);
@@ -328,12 +343,10 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
       if (carPrediction) {
         console.log('🚗 Car detected! Class:', carPrediction.class, 'Confidence:', carPrediction.score);
         setCarDetected(true);
-        setDetectionConfidence(carPrediction.score);
         return true;
       } else {
         console.log('❌ No car detected. Available objects:', predictions.map(p => `${p.class}(${p.score.toFixed(2)})`));
         setCarDetected(false);
-        setDetectionConfidence(0);
         return false;
       }
     } catch (error) {
@@ -350,34 +363,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
   // Auto-advancement is now handled in the detection phase
   // This useEffect is no longer needed since we auto-advance from detection
 
-  // Recording phase - auto-advance for non-front positions
-  useEffect(() => {
-    if (status === 'recording') {
-      setIsRecording(true);
-      timerRef.current = setInterval(() => {
-        setPhaseTimer(prev => {
-          const newTimer = prev + 1;
-          if (newTimer >= 6) {
-            // Complete recording after 6 seconds
-            completePosition();
-            return 0;
-          }
-          return newTimer;
-        });
-      }, 1000);
-    } else {
-      setIsRecording(false);
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    }
-
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    };
-  }, [status]);
+  // Legacy recording timer removed; detection + countdown handles flow
 
   const completePosition = useCallback(() => {
     console.log('✅ Completing position:', currentPosition);
@@ -389,19 +375,21 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
     }
     
     setCompletedPositions(prev => [...prev, currentPosition]);
+    // Reset stencil color for next step
+    setIsStencilGreen(false);
     
     if (currentPosition < POSITIONS.length - 1) {
       // Move to next position
       const nextPosition = currentPosition + 1;
       console.log('🔄 Moving to next position:', nextPosition);
       setCurrentPosition(prev => prev + 1);
-      setStatus('detecting');
-      setPhaseTimer(0);
+      // Pause detection to give the user time to move to the next side
+      setStatus('ready');
+      // reset any previous pacing timers (no-op now)
       
       // Reset completion state for next position
       setCompletionTriggered(false);
       setCarDetected(false);
-      setDetectionConfidence(0);
       
       // Update recordingPhase to match mobile app
       if (nextPosition === 1) {
@@ -428,44 +416,84 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
       setGuidanceMessage(message);
       setShowGuidance(true);
       
-      // Hide after 2 seconds (before stencil turns green)
+      // Give the user 4 seconds to move before detection resumes
       setTimeout(() => {
         setShowGuidance(false);
-      }, 2000);
+        setStatus('detecting');
+      }, 4000);
     } else {
       // All positions completed
       console.log('🎉 All positions completed!');
       setRecordingPhase('complete');
+      // Persist recent claim IDs for dashboard use
+      try {
+        const mapJson = localStorage.getItem('claimsByPosition');
+        if (mapJson) {
+          const map = JSON.parse(mapJson) as Record<Position, number | null>;
+          const ids = Object.values(map).filter((v): v is number => typeof v === 'number');
+          localStorage.setItem('recentClaimIds', JSON.stringify(ids));
+        }
+      } catch {}
       onComplete();
     }
   }, [currentPosition, onComplete]);
 
+  const triggerCaptureAndUpload = useCallback(async () => {
+    try {
+      if (!webcamRef.current) {
+        completePosition();
+        return;
+      }
+      // Take snapshot immediately after turning green (no countdown)
+      const imageSrc = webcamRef.current.getScreenshot();
+      if (!imageSrc) {
+        completePosition();
+        return;
+      }
+
+      // Upload flow
+      setIsUploading(true);
+      setGuidanceMessage('Keep steady');
+      setShowGuidance(true);
+      const fileName = `${POSITIONS[currentPosition].id}-${Date.now()}.jpg`;
+      const contentType = 'image/jpeg';
+      const { presignedUrl, fileKey, s3Url } = await getPresignedUploadUrl({ fileName, contentType });
+      const blob = await dataUrlToJpegBlob(imageSrc);
+      await uploadFileToS3({ presignedUrl, file: blob, contentType });
+      const result = await startS3Processing({
+        carMake: vehicleDetails?.make || 'Unknown',
+        carModel: vehicleDetails?.model || 'Unknown',
+        imageUrl: s3Url,
+        fileKey,
+      });
+
+      // Save claimId mapped to position in localStorage
+      const pos = POSITIONS[currentPosition].id;
+      try {
+        const mapJson = localStorage.getItem('claimsByPosition');
+        const currentMap: Record<Position, number | null> = mapJson ? JSON.parse(mapJson) : { front: null, right: null, back: null, left: null };
+        currentMap[pos] = result.claimId;
+        localStorage.setItem('claimsByPosition', JSON.stringify(currentMap));
+      } catch {}
+
+      setGuidanceMessage(`${POSITIONS[currentPosition].label} snapshot captured!`);
+      setShowGuidance(true);
+    } catch (err) {
+      console.error('Capture/upload error:', err);
+      setGuidanceMessage('Failed to upload snapshot. Moving to next.');
+      setShowGuidance(true);
+    } finally {
+      setIsUploading(false);
+      // Proceed to next position and give the user a few seconds via guidance in completePosition
+      completePosition();
+    }
+  }, [currentPosition, vehicleDetails, completePosition]);
+
 
 
   const getStatusColor = () => {
-    console.log('🎨 Status color check:', {
-      model: !!model,
-      carDetected,
-      detectionConfidence,
-      recordingPhase,
-      phaseTimer
-    });
-    
-    // Use ML detection if available, otherwise fall back to timer logic
-    if (model && carDetected && detectionConfidence > 0.7) {
-      console.log('🎨 Status color: GREEN (ML detection)');
-      return '#4CAF50'; // Green when car detected
-    }
-    
-    // Fallback to timer logic (this ensures the app works even if ML fails)
-    const shouldBeGreen = (recordingPhase === 'front' && phaseTimer >= 6) ||
-                         (recordingPhase === 'right' && phaseTimer >= 6) ||
-                         (recordingPhase === 'back' && phaseTimer >= 6) ||
-                         (recordingPhase === 'left' && phaseTimer >= 6);
-    
-    const color = shouldBeGreen ? '#4CAF50' : '#e53935';
-    console.log('🎨 Status color:', color, shouldBeGreen ? '(Timer-based)' : '(Detecting)');
-    return color; // Green when ready/recording, Red when detecting
+    // Green only after the 2s UX delay has elapsed
+    return isStencilGreen ? '#4CAF50' : '#e53935';
   };
 
 
@@ -749,7 +777,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
                   pos < currentPosition 
                     ? 'bg-green-500' 
                     : pos === currentPosition 
-                    ? carDetected ? 'bg-green-500' : 'bg-red-500'
+                    ? isStencilGreen ? 'bg-green-500' : 'bg-red-500'
                     : 'bg-gray-500'
                 }`}
               />
@@ -758,42 +786,54 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ onComplete, onBack }) => {
         </div>
       </div>
 
+
+      {/* Uploading indicator intentionally omitted; we show 'Keep steady' guidance instead */}
+
       {/* Clean Guidance Message */}
       <AnimatePresence>
         {showGuidance && guidanceMessage && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="absolute top-24 left-1/2 transform -translate-x-1/2 bg-black/80 text-white px-6 py-4 rounded-2xl shadow-lg z-50"
-            style={{
-              maxWidth: '80%',
-              textAlign: 'center'
-            }}
-          >
-            <p className="text-white text-base font-semibold tracking-wide">
-              {guidanceMessage}
-            </p>
-
-            {!model && !modelLoading && (
-              <div className="mt-2 flex items-center justify-center gap-2 text-yellow-400">
-                <AlertCircle className="w-4 h-4" />
-                <span className="text-sm font-semibold">Using timer-based detection</span>
+          guidanceMessage === 'Keep steady' ? (
+            <motion.div
+              key="keep-steady"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50"
+            >
+              <div className="relative">
+                <div className="absolute -inset-2 rounded-full bg-green-500/10 blur-md animate-pulse" />
+                <div className="relative flex items-center gap-3 bg-black/70 text-white px-5 py-3 rounded-full shadow-lg border border-white/10">
+                  <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center">
+                    <Hand className="w-4 h-4 text-green-400" />
+                  </div>
+                  <span className="text-sm font-semibold tracking-wide">Keep steady</span>
+                  <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                </div>
               </div>
-            )}
-            {carDetected && detectionConfidence > 0.7 && (
-              <div className="mt-2 flex items-center justify-center gap-2 text-green-400">
-                <CheckCircle className="w-4 h-4" />
-                <span className="text-sm font-semibold">
-                  Car detected ({Math.round(detectionConfidence * 100)}% confidence)
-                </span>
-              </div>
-            )}
-          </motion.div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="guidance-generic"
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="absolute top-24 left-1/2 transform -translate-x-1/2 bg-black/80 text-white px-6 py-4 rounded-2xl shadow-lg z-50"
+              style={{
+                maxWidth: '80%',
+                textAlign: 'center'
+              }}
+            >
+              <p className="text-white text-base font-semibold tracking-wide">
+                {guidanceMessage}
+              </p>
+            </motion.div>
+          )
         )}
       </AnimatePresence>
 
-      {/* Tutorial Overlay */}
+
+ 
+            {/* Tutorial Overlay */}
       <AnimatePresence>
         {showTutorial && (
           <CameraTutorial
