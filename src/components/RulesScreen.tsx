@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowRight, Shield, Camera, Car, Clock, AlertTriangle, CheckCircle, User } from 'lucide-react';
+import { ArrowRight, Shield, Camera, Car, Clock, AlertTriangle, CheckCircle, User, Upload } from 'lucide-react';
 
 interface RulesScreenProps {
   onStart: (vehicleDetails: { make: string; model: string; regNumber: string }) => void;
+  onManualUpload: () => void;
   onBack: () => void;
 }
 
-const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
+const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onManualUpload, onBack }) => {
   const [showVehicleForm, setShowVehicleForm] = useState(false);
   const [vehicleMake, setVehicleMake] = useState('');
   const [vehicleModel, setVehicleModel] = useState('');
@@ -141,6 +142,16 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
           >
             <Camera className="w-5 h-5" />
             Start Analysis
+          </motion.button>
+          
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={onManualUpload}
+            className="w-full bg-white/20 border border-white/30 text-white font-semibold py-4 px-6 rounded-2xl flex items-center justify-center gap-3"
+          >
+            <Upload className="w-5 h-5" />
+            Manual Upload (if not using camera)
           </motion.button>
           
           <motion.button

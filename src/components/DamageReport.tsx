@@ -11,6 +11,7 @@ import {
   X,
   RefreshCw
 } from 'lucide-react';
+import { generateAndDownloadReport } from '../utils/reportGenerator';
 import { fetchModelImageBlob, fetchClaimResults, ClaimResults } from '../services/api/claimService';
 
 // Helpers to parse price ranges and map confidence
@@ -64,6 +65,8 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
       return [];
     }
   }, []);
+
+
 
   const log = useCallback((line: string) => {
     console.log(`[DAMAGE-REPORT] ${line}`);
@@ -212,12 +215,37 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
     }
   };
 
-  const handleDownload = () => {
-    // In a real app, this would generate and download a PDF report
-    const link = document.createElement('a');
-    link.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent('Car Damage Report\n\nFront Bumper Dent\nEstimated Cost: Rs 3,000-4,000\n\nThis is a sample report.');
-    link.download = 'car-damage-report.txt';
-    link.click();
+  const handleDownload = async () => {
+    try {
+      const items = costings.map(c => ({ part: c.part, price: Number(c.price || 0), confidence: c.confidence }));
+      
+      // Get vehicle details from localStorage if available
+      let vehicleMake = 'User Entered';
+      let vehicleModel = 'User Entered';
+      try {
+        const vehicleDetails = localStorage.getItem('vehicleDetails');
+        if (vehicleDetails) {
+          const parsed = JSON.parse(vehicleDetails);
+          vehicleMake = parsed.make || vehicleMake;
+          vehicleModel = parsed.model || vehicleModel;
+        }
+      } catch (e) {
+        console.warn('Could not parse vehicle details:', e);
+      }
+      
+      await generateAndDownloadReport({
+        claimId: claimIds[0] || 0,
+        assessmentId: 'web',
+        vehicleMake,
+        vehicleModel,
+        total: displayEstimate,
+        items,
+        photoUrls: imageUrls,
+      });
+    } catch (e) {
+      console.error('Failed to generate PDF', e);
+      alert('Failed to generate PDF');
+    }
   };
 
   return (

@@ -3,13 +3,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import LandingScreen from './components/LandingScreen';
 import RulesScreen from './components/RulesScreen';
 import CameraScreen from './components/CameraScreen';
+import ManualUploadScreen from './components/ManualUploadScreen';
 import BufferingScreen from './components/BufferingScreen';
 import DamageReport from './components/DamageReport';
 import Login from './components/Login';
 import { useCognitoAuth } from './hooks/useCognitoAuth';
 import logo from './assets/images/logo.png';
 
-export type ScreenType = 'landing' | 'rules' | 'camera' | 'buffering' | 'report';
+export type ScreenType = 'landing' | 'rules' | 'camera' | 'manual-upload' | 'buffering' | 'report';
 
 function App() {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('landing');
@@ -20,7 +21,7 @@ function App() {
 
   const navigateTo = async (screen: ScreenType) => {
     // Protect all screens except landing and rules with auth
-    const protectedScreens: ScreenType[] = ['camera', 'buffering', 'report'];
+    const protectedScreens: ScreenType[] = ['camera', 'manual-upload', 'buffering', 'report'];
     if (protectedScreens.includes(screen)) {
       const ok = await isAuthenticated();
       if (!ok) {
@@ -118,6 +119,7 @@ function App() {
                 setVehicleDetails(details);
                 navigateTo('camera');
               }}
+              onManualUpload={() => navigateTo('manual-upload')}
               onBack={() => navigateTo('landing')}
             />
           </motion.div>
@@ -135,6 +137,21 @@ function App() {
               vehicleDetails={vehicleDetails}
               onComplete={() => navigateTo('buffering')}
               onBack={() => navigateTo('landing')}
+            />
+          </motion.div>
+        )}
+
+        {currentScreen === 'manual-upload' && (
+          <motion.div
+            key="manual-upload"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <ManualUploadScreen 
+              onComplete={() => navigateTo('buffering')}
+              onBack={() => navigateTo('rules')}
             />
           </motion.div>
         )}
