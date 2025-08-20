@@ -88,10 +88,13 @@ export async function getMockLimitInfo(scenario: 'normal' | 'limited' | 'unlimit
 
 // Helper function to calculate remaining assessments (1 assessment = 4 uploads)
 export function getRemainingAssessments(remainingUploads: number): number {
+  // Treat negative remaining uploads (e.g., -1 for unlimited) as unlimited
+  if (remainingUploads < 0) return Number.POSITIVE_INFINITY;
   return Math.floor(remainingUploads / 4);
 }
 
 // Helper function to check if user can perform assessment
 export function canPerformAssessment(remainingUploads: number): boolean {
-  return remainingUploads >= 4;
+  // Allow if unlimited (negative remaining uploads) or if at least 4 uploads are available
+  return remainingUploads < 0 || remainingUploads >= 4;
 }
