@@ -26,6 +26,13 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
   const { isAuthenticated } = useCognitoAuth();
   const { refetch: refetchUploadLimits } = useUploadLimitsContext();
 
+  // Keep upload limits in sync with auth state (switching accounts without hard refresh)
+  useEffect(() => {
+    // When auth state changes, refresh limits. This also clears limits on logout
+    // because the hook avoids calling the API when not authenticated.
+    refetchUploadLimits();
+  }, [isAuthed, refetchUploadLimits]);
+
   const navigateTo = async (screen: ScreenType) => {
     // Protect all screens except landing and rules with auth
     const protectedScreens: ScreenType[] = ['camera', 'manual-upload', 'buffering', 'report'];
