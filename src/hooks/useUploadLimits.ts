@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getLimitInfo, LimitInfoResponse, getRemainingAssessments, canPerformAssessment } from '../services/api/limitService';
+import { cognitoService } from '../services/cognitoService';
 
 export interface UploadLimitsState {
   limitInfo: LimitInfoResponse | null;
@@ -21,6 +22,19 @@ export function useUploadLimits() {
   const fetchLimitInfo = useCallback(async () => {
     try {
       setState(prev => ({ ...prev, loading: true, error: null }));
+      // Avoid 401 redirect loop before auth is established
+      const authed = await cognitoService.isAuthenticated();
+      if (!authed) {
+        setState(prev => ({
+          ...prev,
+          loading: false,
+          error: null,
+          limitInfo: null,
+          remainingAssessments: 0,
+          canPerformAssessment: false,
+        }));
+        return;
+      }
       const limitInfo = await getLimitInfo();
       const remainingAssessments = getRemainingAssessments(limitInfo.stats.remainingUploads);
       const canPerform = canPerformAssessment(limitInfo.stats.remainingUploads);
