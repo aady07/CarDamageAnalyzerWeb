@@ -341,11 +341,68 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         (pred.class === 'car' || pred.class === 'truck' || pred.class === 'bus') && 
         pred.score > 0.7
       );
-      
+
+      // Helper: determine if bbox is fully inside the stencil area and large enough
+      const isBoxInsideStencil = (bbox: [number, number, number, number], frameW: number, frameH: number): boolean => {
+        const [bx, by, bw, bh] = bbox;
+
+        // Define stencil rect based on current position UI layout
+        let sx = 0;
+        let sy = 0;
+        let sw = frameW;
+        let sh = frameH;
+        // For front (0) and back (2), stencil is 70% width centered with 15% margins
+        if (currentPosition === 0 || currentPosition === 2) {
+          sw = frameW * 0.70;
+          sx = frameW * 0.15;
+        }
+
+        // Require bbox fully inside stencil with a small padding
+        const paddingX = sw * 0.04; // 4% horizontal padding
+        const paddingY = sh * 0.04; // 4% vertical padding
+
+        const inside =
+          bx >= sx + paddingX &&
+          by >= sy + paddingY &&
+          bx + bw <= sx + sw - paddingX &&
+          by + bh <= sy + sh - paddingY;
+
+        if (!inside) return false;
+
+        // Size constraints: make sure car fills most of the stencil (i.e., whole car present)
+        const widthRatio = bw / sw;   // portion of stencil width the car covers
+        const heightRatio = bh / sh;  // portion of stencil height the car covers
+
+        // Tunable thresholds: require substantial coverage but not overfilling
+        const minWidth = currentPosition === 0 || currentPosition === 2 ? 0.55 : 0.50;
+        const minHeight = 0.55;
+        const maxWidth = 0.95;
+        const maxHeight = 0.95;
+
+        return (
+          widthRatio >= minWidth &&
+          heightRatio >= minHeight &&
+          widthRatio <= maxWidth &&
+          heightRatio <= maxHeight
+        );
+      };
+
       if (carPrediction) {
-        console.log('🚗 Car detected! Class:', carPrediction.class, 'Confidence:', carPrediction.score);
-        setCarDetected(true);
-        return true;
+        // Validate that the detected car fits well inside our stencil
+        const frameW = img.width;
+        const frameH = img.height;
+        const bbox = carPrediction.bbox as [number, number, number, number];
+        const fitsStencil = isBoxInsideStencil(bbox, frameW, frameH);
+
+        if (fitsStencil) {
+          console.log('🚗 Car detected INSIDE stencil. Class:', carPrediction.class, 'Confidence:', carPrediction.score);
+          setCarDetected(true);
+          return true;
+        }
+
+        console.log('⚠️ Car detected but not fully inside stencil. Waiting... bbox:', bbox, 'frame:', { frameW, frameH });
+        setCarDetected(false);
+        return false;
       } else {
         console.log('❌ No car detected. Available objects:', predictions.map(p => `${p.class}(${p.score.toFixed(2)})`));
         setCarDetected(false);
