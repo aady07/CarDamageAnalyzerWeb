@@ -336,11 +336,16 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       const predictions = await model.detect(img);
       console.log('🔍 Car detection: Raw predictions:', predictions);
       
-      // Look for car, truck, or bus with high confidence
-      const carPrediction = predictions.find(pred => 
-        (pred.class === 'car' || pred.class === 'truck' || pred.class === 'bus') && 
-        pred.score > 0.7
+      // Look for car, truck, or bus with slightly lower threshold and choose the largest area
+      const vehiclePreds = predictions.filter(pred =>
+        (pred.class === 'car' || pred.class === 'truck' || pred.class === 'bus') &&
+        pred.score > 0.6
       );
+      const carPrediction = vehiclePreds.sort((a, b) => {
+        const [, , aw, ah] = a.bbox as [number, number, number, number];
+        const [, , bw, bh] = b.bbox as [number, number, number, number];
+        return (bw * bh) - (aw * ah);
+      })[0];
 
       // Helper: determine if bbox is fully inside the stencil area and large enough
       const isBoxInsideStencil = (bbox: [number, number, number, number], frameW: number, frameH: number): boolean => {
@@ -356,35 +361,60 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
           sw = frameW * 0.70;
           sx = frameW * 0.15;
         }
+        // For right (1) and left (3), stencil is 80% width centered with 10% margins
+        if (currentPosition === 1 || currentPosition === 3) {
+          sw = frameW * 0.80;
+          sx = frameW * 0.10;
+        }
 
         // Require bbox fully inside stencil with a small padding
-        const paddingX = sw * 0.04; // 4% horizontal padding
-        const paddingY = sh * 0.04; // 4% vertical padding
+        const paddingX = sw * 0.02; // 2% horizontal padding
+        const paddingY = sh * 0.02; // 2% vertical padding
 
-        const inside =
-          bx >= sx + paddingX &&
-          by >= sy + paddingY &&
-          bx + bw <= sx + sw - paddingX &&
-          by + bh <= sy + sh - paddingY;
+        console.log('📐 Fit check:', {
+          position: currentPosition,
+          frame: { frameW, frameH },
+          stencil: { sx, sy, sw, sh },
+          padding: { paddingX, paddingY },
+          bbox: { bx, by, bw, bh }
+        });
 
-        if (!inside) return false;
+        const leftOk = bx >= sx + paddingX;
+        const topOk = by >= sy + paddingY;
+        const rightOk = bx + bw <= sx + sw - paddingX;
+        const bottomOk = by + bh <= sy + sh - paddingY;
+        const inside = leftOk && topOk && rightOk && bottomOk;
+
+        if (!inside) {
+          console.log('❌ Inside fail:', { leftOk, topOk, rightOk, bottomOk });
+          return false;
+        }
 
         // Size constraints: make sure car fills most of the stencil (i.e., whole car present)
         const widthRatio = bw / sw;   // portion of stencil width the car covers
         const heightRatio = bh / sh;  // portion of stencil height the car covers
 
         // Tunable thresholds: require substantial coverage but not overfilling
-        const minWidth = currentPosition === 0 || currentPosition === 2 ? 0.55 : 0.50;
-        const minHeight = 0.55;
-        const maxWidth = 0.95;
-        const maxHeight = 0.95;
+        const minWidth = (currentPosition === 0 || currentPosition === 2) ? 0.50 : 0.35;
+        const minHeight = 0.45;
+        const maxWidth = 0.98;
+        const maxHeight = 0.98;
 
-        return (
+        const coverageOk = (
           widthRatio >= minWidth &&
           heightRatio >= minHeight &&
           widthRatio <= maxWidth &&
           heightRatio <= maxHeight
         );
+
+        console.log('📊 Coverage ratios:', {
+          widthRatio: widthRatio.toFixed(3),
+          heightRatio: heightRatio.toFixed(3),
+          thresholds: { minWidth, minHeight, maxWidth, maxHeight },
+          coverageOk
+        });
+
+        return coverageOk;
       };
 
       if (carPrediction) {
@@ -392,6 +422,11 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         const frameW = img.width;
         const frameH = img.height;
         const bbox = carPrediction.bbox as [number, number, number, number];
+        console.log('🎯 Selected car prediction:', {
+          class: carPrediction.class,
+          score: carPrediction.score,
+          bbox
+        });
         const fitsStencil = isBoxInsideStencil(bbox, frameW, frameH);
 
         if (fitsStencil) {
