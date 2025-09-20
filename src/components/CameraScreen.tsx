@@ -526,11 +526,8 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
           const map = JSON.parse(mapJson) as Record<Position, number | null>;
           const ids = Object.values(map).filter((v): v is number => typeof v === 'number');
           localStorage.setItem('recentClaimIds', JSON.stringify(ids));
-          console.log(`🎉 Camera session complete! Stored ${ids.length} valid claim IDs:`, ids);
         }
-      } catch (error) {
-        console.warn('Failed to store recent claim IDs:', error);
-      }
+      } catch {}
       onComplete();
     }
   }, [currentPosition, onComplete]);
@@ -571,10 +568,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         const currentMap: Record<Position, number | null> = mapJson ? JSON.parse(mapJson) : { front: null, right: null, back: null, left: null };
         currentMap[pos] = result.claimId;
         localStorage.setItem('claimsByPosition', JSON.stringify(currentMap));
-        console.log(`✅ Stored claim ID ${result.claimId} for position ${pos}`);
-      } catch (error) {
-        console.warn('Failed to store claim ID in localStorage:', error);
-      }
+      } catch {}
 
       setGuidanceMessage(`${POSITIONS[currentPosition].label} snapshot captured!`);
       setShowGuidance(true);

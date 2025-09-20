@@ -79,40 +79,10 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
     log(`Fetching results for ${claimIds.length} claims...`);
     
     try {
-      // First, check which claims actually have valid results by testing one endpoint
-      const validClaimIds: number[] = [];
-      
-      // Test each claim ID to see if it has valid results
-      for (const claimId of claimIds) {
-        try {
-          // Try to fetch claim results first to validate the claim exists and has data
-          const claimResults = await fetchClaimResults(claimId);
-          if (claimResults && (claimResults.costings?.length > 0 || claimResults.damageAreas?.length > 0)) {
-            validClaimIds.push(claimId);
-            log(`Claim ${claimId} has valid results`);
-          } else {
-            log(`Claim ${claimId} has no valid results, skipping`);
-          }
-        } catch (error) {
-          log(`Claim ${claimId} failed validation: ${String(error)}`);
-        }
-      }
-      
-      if (validClaimIds.length === 0) {
-        log(`No valid claims found, skipping image and result fetching`);
-        setImageUrls([]);
-        setCostings([]);
-        setTargetEstimate(0);
-        setMeanCost(0);
-        return;
-      }
-      
-      log(`Found ${validClaimIds.length} valid claims out of ${claimIds.length} total`);
-      
-      // Fetch images only for valid claims
+      // Fetch images for each claim ID (2 images per claim)
       const imagePromises: Promise<{ claimId: number; model: 1 | 2; blob: Blob | null }>[] = [];
       
-      validClaimIds.forEach((claimId) => {
+      claimIds.forEach((claimId) => {
         // Model 1 image for this claim
         imagePromises.push(
           fetchModelImageBlob(claimId, 1)
@@ -141,11 +111,19 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
         }));
       
       setImageUrls(validImages.map(img => img.url));
-      log(`Successfully loaded ${validImages.length} processed images from ${validClaimIds.length} valid claims`);
+      log(`Successfully loaded ${validImages.length} processed images from ${claimIds.length} claims`);
       
-      // Fetch claim results only for valid claims
+      // Log any failed image fetches for debugging
+      const failedImages = imageResults.filter(result => result.blob === null);
+      if (failedImages.length > 0) {
+        log(`Failed to load ${failedImages.length} images: ${failedImages.map(f => `Claim ${f.claimId} Model ${f.model}`).join(', ')}`);
+      }
+      
+      // (logs only in console)
+
+      // Fetch claim results for costings
       const results = await Promise.all(
-        validClaimIds.map((id) => fetchClaimResults(id).catch(() => null))
+        claimIds.map((id) => fetchClaimResults(id).catch(() => null))
       );
       const allCostings = results
         .filter((r): r is NonNullable<typeof r> => !!r)
@@ -156,7 +134,7 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
           confidence: c.confidence as string | undefined,
         }));
       setCostings(allCostings);
-      log(`Processed ${allCostings.length} costings from ${results.filter(r => r).length} valid claims`);
+      log(`Processed ${allCostings.length} costings from ${results.filter(r => r).length} claims`);
 
       const total = allCostings.reduce((sum, c) => sum + (Number(c.price) || 0), 0);
       setTargetEstimate(total);
@@ -465,7 +443,7 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
           <div className="glass-effect rounded-2xl p-6">
             {meanCost > 0 && (
               <div className="mb-4 flex items-center justify-between">
-                <span className="text-gray-300">Mean per-claim total ({costings.length > 0 ? Math.ceil(costings.length / 2) : 0} valid claims)</span>
+                <span className="text-gray-300">Mean per-claim total ({claimIds.length} claims)</span>
                 <span className="text-blue-400 font-bold">₹{Math.round(meanCost).toLocaleString()}</span>
               </div>
             )}

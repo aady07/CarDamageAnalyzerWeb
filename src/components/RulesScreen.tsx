@@ -165,7 +165,19 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onManualUpload, onBa
           <motion.button
             whileHover={{ scale: canPerformAssessment ? 1.02 : 1 }}
             whileTap={{ scale: canPerformAssessment ? 0.98 : 1 }}
-            onClick={() => canPerformAssessment && onManualUpload()}
+            onClick={() => {
+              if (canPerformAssessment) {
+                // Clear previous assessment data to prevent mixing old and new claim IDs
+                try {
+                  localStorage.removeItem('claimsByPosition');
+                  localStorage.removeItem('recentClaimIds');
+                  console.log('Cleared previous assessment data from localStorage');
+                } catch (error) {
+                  console.warn('Failed to clear localStorage:', error);
+                }
+                onManualUpload();
+              }
+            }}
             disabled={!canPerformAssessment}
             className={`w-full font-semibold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 ${
               canPerformAssessment 
@@ -259,6 +271,14 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onManualUpload, onBa
                   whileTap={{ scale: 0.98 }}
                   onClick={() => {
                     if (vehicleMake.trim() && vehicleModel.trim()) {
+                      // Clear previous assessment data to prevent mixing old and new claim IDs
+                      try {
+                        localStorage.removeItem('claimsByPosition');
+                        localStorage.removeItem('recentClaimIds');
+                        console.log('Cleared previous assessment data from localStorage');
+                      } catch (error) {
+                        console.warn('Failed to clear localStorage:', error);
+                      }
                       onStart({ make: vehicleMake, model: vehicleModel, regNumber: vehicleRegNumber });
                     }
                   }}
