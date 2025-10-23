@@ -3,15 +3,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import LandingScreen from './LandingScreen';
 import RulesScreen from './RulesScreen';
 import CameraScreen from './CameraScreen';
-import ManualUploadScreen from './ManualUploadScreen';
-import BufferingScreen from './BufferingScreen';
-import DamageReport from './DamageReport';
+import Dashboard from './Dashboard';
+import AdminDashboard from './AdminDashboard';
 import Login from './Login';
 import { useCognitoAuth } from '../hooks/useCognitoAuth.js';
-import { useUploadLimitsContext } from '../contexts/UploadLimitsContext';
+import { checkAdminStatus } from '../services/api/adminService';
 import logo from '../assets/images/logo.png';
 
-export type ScreenType = 'landing' | 'rules' | 'camera' | 'manual-upload' | 'buffering' | 'report';
+export type ScreenType = 'landing' | 'rules' | 'camera' | 'dashboard' | 'admin';
 
 interface AppContentProps {
   isAuthed: boolean | null;
@@ -23,26 +22,41 @@ interface AppContentProps {
 const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, onAuthSuccess }) => {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('landing');
   const [vehicleDetails, setVehicleDetails] = useState<{ make: string; model: string; regNumber: string } | null>(null);
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const { isAuthenticated } = useCognitoAuth();
-  const { refetch: refetchUploadLimits } = useUploadLimitsContext();
 
-  // Keep upload limits in sync with auth state (switching accounts without hard refresh)
+  // Check admin status when user is authenticated
   useEffect(() => {
-    // When auth state changes, refresh limits. This also clears limits on logout
-    // because the hook avoids calling the API when not authenticated.
-    refetchUploadLimits();
-  }, [isAuthed, refetchUploadLimits]);
+    if (isAuthed === true) {
+      checkAdminStatus()
+        .then(response => {
+          setIsAdmin(response.isAdmin);
+        })
+        .catch(error => {
+          console.error('Failed to check admin status:', error);
+          setIsAdmin(false);
+        });
+    } else {
+      setIsAdmin(null);
+    }
+  }, [isAuthed]);
 
   const navigateTo = async (screen: ScreenType) => {
-    // Protect all screens except landing and rules with auth
-    const protectedScreens: ScreenType[] = ['camera', 'manual-upload', 'buffering', 'report'];
-    if (protectedScreens.includes(screen)) {
+    // Protect camera, dashboard, and admin screens with auth
+    if (screen === 'camera' || screen === 'dashboard' || screen === 'admin') {
       const ok = await isAuthenticated();
       if (!ok) {
         // Handle auth requirement - this should be handled by the parent App component
         return;
       }
     }
+    
+    // Protect admin screen with admin check
+    if (screen === 'admin' && isAdmin !== true) {
+      console.warn('Admin access required');
+      return;
+    }
+    
     setCurrentScreen(screen);
   };
 
@@ -53,12 +67,30 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
         <div className="px-8 pt-0 flex items-center justify-between">
           <img src={logo} alt="Logo" className="h-32 md:h-32 w-auto ml-0 md:ml-6" />
           {isAuthed && (
-            <button
-              onClick={onLogout}
-              className="text-white/90 hover:text-white text-sm font-semibold bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg px-4 py-2"
-            >
-              Logout
-            </button>
+            <div className="flex items-center gap-4">
+              {currentScreen !== 'dashboard' && (
+                <button
+                  onClick={() => navigateTo('dashboard')}
+                  className="text-white/90 hover:text-white text-sm font-semibold bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg px-4 py-2"
+                >
+                  Dashboard
+                </button>
+              )}
+              {isAdmin === true && currentScreen !== 'admin' && (
+                <button
+                  onClick={() => navigateTo('admin')}
+                  className="text-white/90 hover:text-white text-sm font-semibold bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded-lg px-4 py-2"
+                >
+                  Admin
+                </button>
+              )}
+              <button
+                onClick={onLogout}
+                className="text-white/90 hover:text-white text-sm font-semibold bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg px-4 py-2"
+              >
+                Logout
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -106,7 +138,6 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
                 setVehicleDetails(details);
                 navigateTo('camera');
               }}
-              onManualUpload={() => navigateTo('manual-upload')}
               onBack={() => navigateTo('landing')}
             />
           </motion.div>
@@ -122,58 +153,35 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
           >
             <CameraScreen 
               vehicleDetails={vehicleDetails}
-              onComplete={async () => {
-                await refetchUploadLimits();
-                navigateTo('buffering');
-              }}
+              onComplete={() => navigateTo('landing')}
               onBack={() => navigateTo('landing')}
             />
           </motion.div>
         )}
 
-        {currentScreen === 'manual-upload' && (
+        {currentScreen === 'dashboard' && (
           <motion.div
-            key="manual-upload"
+            key="dashboard"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <ManualUploadScreen 
-              onComplete={async () => {
-                await refetchUploadLimits();
-                navigateTo('buffering');
-              }}
-              onBack={() => navigateTo('rules')}
-            />
+            <Dashboard onBack={() => navigateTo('landing')} />
           </motion.div>
         )}
 
-        {currentScreen === 'buffering' && (
+        {currentScreen === 'admin' && (
           <motion.div
-            key="buffering"
+            key="admin"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <BufferingScreen onComplete={() => navigateTo('report')} />
+            <AdminDashboard onBack={() => navigateTo('landing')} />
           </motion.div>
         )}
-
-        {currentScreen === 'report' && (
-          <motion.div
-            key="report"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5 }}
-          >
-            <DamageReport onBack={() => navigateTo('landing')} />
-          </motion.div>
-        )}
-
-        {/* Test screen removed in production build */}
 
         {needsAuth && (
           <motion.div

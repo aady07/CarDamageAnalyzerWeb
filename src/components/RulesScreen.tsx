@@ -1,16 +1,15 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowRight, Shield, Camera, Car, Clock, AlertTriangle, CheckCircle, User, Upload } from 'lucide-react';
+import { ArrowRight, Shield, Camera, Car, Clock, AlertTriangle, CheckCircle, User } from 'lucide-react';
 import UploadLimitsDisplay from './UploadLimitsDisplay';
 import { useUploadLimitsContext } from '../contexts/UploadLimitsContext';
 
 interface RulesScreenProps {
   onStart: (vehicleDetails: { make: string; model: string; regNumber: string }) => void;
-  onManualUpload: () => void;
   onBack: () => void;
 }
 
-const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onManualUpload, onBack }) => {
+const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
   const [showVehicleForm, setShowVehicleForm] = useState(false);
   const [vehicleMake, setVehicleMake] = useState('');
   const [vehicleModel, setVehicleModel] = useState('');
@@ -44,7 +43,7 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onManualUpload, onBa
     {
       icon: CheckCircle,
       title: 'Follow Instructions',
-      description: 'Follow the on-screen stencil guides for accurate damage assessment',
+      description: 'Follow the AI-guided instructions for accurate damage assessment',
       color: 'text-purple-400'
     }
   ];
@@ -159,34 +158,7 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onManualUpload, onBa
             }`}
           >
             <Camera className="w-5 h-5" />
-            {canPerformAssessment ? 'Start Analysis' : 'Insufficient Uploads'}
-          </motion.button>
-          
-          <motion.button
-            whileHover={{ scale: canPerformAssessment ? 1.02 : 1 }}
-            whileTap={{ scale: canPerformAssessment ? 0.98 : 1 }}
-            onClick={() => {
-              if (canPerformAssessment) {
-                // Clear previous assessment data to prevent mixing old and new claim IDs
-                try {
-                  localStorage.removeItem('claimsByPosition');
-                  localStorage.removeItem('recentClaimIds');
-                  console.log('Cleared previous assessment data from localStorage');
-                } catch (error) {
-                  console.warn('Failed to clear localStorage:', error);
-                }
-                onManualUpload();
-              }
-            }}
-            disabled={!canPerformAssessment}
-            className={`w-full font-semibold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 ${
-              canPerformAssessment 
-                ? 'bg-white/20 border border-white/30 text-white' 
-                : 'bg-gray-600/50 border border-gray-600/50 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            <Upload className="w-5 h-5" />
-            {canPerformAssessment ? 'Manual Upload (if not using camera)' : 'Manual Upload Disabled'}
+            {canPerformAssessment ? 'Start AI Analysis' : 'Insufficient Uploads'}
           </motion.button>
           
           <motion.button
@@ -289,7 +261,7 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onManualUpload, onBa
                       : 'bg-blue-500 hover:bg-blue-600 text-white'
                   }`}
                 >
-                  Start Camera Analysis
+                  Start AI Analysis
                 </motion.button>
               </div>
             </motion.div>

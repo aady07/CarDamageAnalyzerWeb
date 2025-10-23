@@ -1,18 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Webcam from 'react-webcam';
-import { ArrowLeft, AlertTriangle, HelpCircle, Hand } from 'lucide-react';
-import * as tf from '@tensorflow/tfjs';
-import * as cocoSsd from '@tensorflow-models/coco-ssd';
-import CameraTutorial from './CameraTutorial';
-import { getPresignedUploadUrl, uploadFileToS3, startS3Processing, dataUrlToJpegBlob } from '../services/api/uploadService';
-import { useUploadLimitsContext } from '../contexts/UploadLimitsContext';
+import { ArrowLeft, AlertTriangle, HelpCircle, Brain, ArrowRight, Play } from 'lucide-react';
+import { getPresignedUploadUrl, uploadFileToS3, dataUrlToJpegBlob } from '../services/api/uploadService';
+import { getVideoPresignedUploadUrl, uploadVideoToS3 } from '../services/api/videoUploadService';
+import { submitCarInspection } from '../services/api/carInspectionService';
+import SuccessScreen from './SuccessScreen';
 
-// Import car stencil images
-import frontStencil from '../assets/images/1.png';
-import rightStencil from '../assets/images/2.png';
-import backStencil from '../assets/images/3.png';
-import leftStencil from '../assets/images/4.png';
+console.log('🎥 CAMERA SCREEN: Video upload service imported:', { getVideoPresignedUploadUrl, uploadVideoToS3 });
 
 interface CameraScreenProps {
   vehicleDetails: { make: string; model: string; regNumber: string } | null;
@@ -20,102 +15,93 @@ interface CameraScreenProps {
   onBack: () => void;
 }
 
-type Position = 'front' | 'right' | 'back' | 'left';
-type Status = 'detecting' | 'ready' | 'recording' | 'completed';
+type ScanStatus = 'idle' | 'recording' | 'processing' | 'completed' | 'error';
+type CapturePhase = 'front' | 'left' | 'back' | 'right';
 
-interface PositionData {
-  id: Position;
+interface CaptureData {
+  phase: CapturePhase;
   label: string;
-  image: string;
-  angle: number;
+  instruction: string;
+  timing: number; // seconds
   color: string;
+  icon: React.ReactNode;
 }
 
-const POSITIONS: PositionData[] = [
-  { id: 'front', label: 'Front', image: frontStencil, angle: 0, color: '#4CAF50' },
-  { id: 'right', label: 'Right', image: rightStencil, angle: 270, color: '#2196F3' },
-  { id: 'back', label: 'Back', image: backStencil, angle: 180, color: '#FF9800' },
-  { id: 'left', label: 'Left', image: leftStencil, angle: 90, color: '#9C27B0' }
+const CAPTURE_PHASES: CaptureData[] = [
+  { 
+    phase: 'front', 
+    label: 'FRONT VIEW', 
+    instruction: 'Hold steady for 2 seconds',
+    timing: 5, // 5 second delay before first capture
+    color: '#00D4FF',
+    icon: <ArrowRight className="w-6 h-6" />
+  },
+  { 
+    phase: 'left', 
+    label: 'LEFT SIDE', 
+    instruction: 'Move to the right of the car',
+    timing: 20, // 15 seconds after first capture (5s + 10s movement + 5s hold)
+    color: '#8B5CF6',
+    icon: <ArrowRight className="w-6 h-6 -rotate-90" />
+  },
+  { 
+    phase: 'back', 
+    label: 'REAR VIEW', 
+    instruction: 'Move to the rear',
+    timing: 40, // 20 seconds after second capture (20s + 15s movement + 5s hold)
+    color: '#FF6B35',
+    icon: <ArrowRight className="w-6 h-6 rotate-180" />
+  },
+  { 
+    phase: 'right', 
+    label: 'RIGHT SIDE', 
+    instruction: 'Move to the left',
+    timing: 60, // 20 seconds after third capture (40s + 15s movement + 5s hold)
+    color: '#00FF88',
+    icon: <ArrowRight className="w-6 h-6 rotate-90" />
+  }
 ];
 
 const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete, onBack }) => {
-  const [currentPosition, setCurrentPosition] = useState(0);
-  const [status, setStatus] = useState<Status>('detecting');
-  const { canPerformAssessment, limitInfo } = useUploadLimitsContext();
-  
-  const [showGuidance, setShowGuidance] = useState(false);
-  const [guidanceMessage, setGuidanceMessage] = useState('');
-  const [completedPositions, setCompletedPositions] = useState<number[]>([]);
+  const [status, setStatus] = useState<ScanStatus>('idle');
+  const [currentPhase, setCurrentPhase] = useState(0);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [successData, setSuccessData] = useState<{ inspectionId: number; registrationNumber: string; estimatedTime: string } | null>(null);
+  const [showTutorial, setShowTutorial] = useState(true);
   const [cameraPermission, setCameraPermission] = useState<'granted' | 'denied' | 'pending'>('pending');
-  
-  // Mobile app variables
-  const [recordingPhase, setRecordingPhase] = useState<'idle' | 'front' | 'right' | 'back' | 'left' | 'complete'>('front');
-  
-  // Car detection variables
-  const [model, setModel] = useState<cocoSsd.ObjectDetection | null>(null);
-  const [modelLoading, setModelLoading] = useState(false);
-  const [carDetected, setCarDetected] = useState(false);
-  // Confidence is not shown in UI; omit state to reduce noise
-  const [completionTriggered, setCompletionTriggered] = useState(false);
-  const [showPermissionRequest, setShowPermissionRequest] = useState(false);
   const [cameraError, setCameraError] = useState<string>('');
   const [isMobile, setIsMobile] = useState(false);
-  // Track orientation implicitly via window size check; no state needed
   const [showOrientationPrompt, setShowOrientationPrompt] = useState(false);
-  const [showTutorial, setShowTutorial] = useState(true);
-  // Capture & upload state
-  // Countdown removed in favor of a calm, steady capture flow
-  const [isUploading, setIsUploading] = useState(false); // kept for behavior control; UI hidden
-  const [isStencilGreen, setIsStencilGreen] = useState(false);
+  const [showPermissionRequest, setShowPermissionRequest] = useState(false);
   
+  // New state for enhanced UI
+  const [currentInstruction, setCurrentInstruction] = useState<string>('');
+  const [isHoldSteady, setIsHoldSteady] = useState(false);
+  const [showMovementAnimation, setShowMovementAnimation] = useState(false);
+  const [cameraBlurred, setCameraBlurred] = useState(true);
+  const [orientationError, setOrientationError] = useState(false);
   
   const webcamRef = useRef<Webcam>(null);
-  
-  const detectionTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const detectCarRef = useRef<(() => Promise<boolean>) | null>(null);
-  const greenDelayRef = useRef<NodeJS.Timeout | null>(null);
+  const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const captureTimersRef = useRef<NodeJS.Timeout[]>([]);
+  const startTimeRef = useRef<number>(0);
+  const capturedImagesRef = useRef<{ [key in CapturePhase]?: string }>({});
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const videoStreamRef = useRef<MediaStream | null>(null);
 
-  const currentPosData = POSITIONS[currentPosition] || POSITIONS[0]; // Fallback to first position if out of bounds
-
-
-
-  // Load TensorFlow.js model
-  useEffect(() => {
-    const loadModel = async () => {
-      try {
-        setModelLoading(true);
-        console.log('Loading car detection model...');
-        
-        // Initialize TensorFlow.js backend
-        await tf.ready();
-        console.log('TensorFlow.js backend ready:', tf.getBackend());
-        
-        const loadedModel = await cocoSsd.load();
-        setModel(loadedModel);
-        console.log('Car detection model loaded successfully');
-      } catch (error) {
-        console.error('Failed to load car detection model:', error);
-      } finally {
-        setModelLoading(false);
-      }
-    };
-
-    loadModel();
-  }, []);
 
   // Detect mobile device and check orientation
   useEffect(() => {
-    // Detect mobile device
     const checkMobile = () => {
       const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
       const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
       setIsMobile(isMobileDevice);
     };
     
-    // Check orientation
     const checkOrientation = () => {
       const isLandscapeMode = window.innerWidth > window.innerHeight;
-      // Show orientation prompt for mobile devices in portrait mode
       if (isMobile && !isLandscapeMode) {
         setShowOrientationPrompt(true);
       } else {
@@ -123,38 +109,31 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       }
     };
 
-    // Lock screen orientation to landscape (like mobile app)
     const lockOrientation = async () => {
       try {
         if (screen.orientation && screen.orientation.lock) {
           await screen.orientation.lock('landscape');
-          console.log('Screen orientation locked to landscape');
         }
       } catch (error) {
         console.log('Could not lock orientation:', error);
       }
     };
 
-    // Unlock screen orientation
     const unlockOrientation = async () => {
       try {
         if (screen.orientation && screen.orientation.unlock) {
           await screen.orientation.unlock();
-          console.log('Screen orientation unlocked');
         }
       } catch (error) {
         console.log('Could not unlock orientation:', error);
       }
     };
 
-
-    
     checkMobile();
     checkOrientation();
 
-    // Listen for orientation changes
     const handleOrientationChange = () => {
-      setTimeout(checkOrientation, 100); // Small delay to ensure orientation is updated
+      setTimeout(checkOrientation, 100);
     };
 
     window.addEventListener('resize', handleOrientationChange);
@@ -162,23 +141,20 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
 
     const requestCameraPermission = async () => {
       try {
-        // Check if getUserMedia is supported
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
           setCameraError('Camera not supported in this browser');
           setCameraPermission('denied');
           return;
         }
 
-        // Request camera permission
         const stream = await navigator.mediaDevices.getUserMedia({ 
           video: { 
-            facingMode: 'environment', // Use back camera on mobile
+            facingMode: 'environment',
             width: { ideal: 1920 },
             height: { ideal: 1080 }
           } 
         });
         
-        // Stop the stream immediately after getting permission
         stream.getTracks().forEach(track => track.stop());
         
         setCameraPermission('granted');
@@ -191,10 +167,8 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       }
     };
 
-    // Small delay to ensure component is mounted
     const timer = setTimeout(() => {
       requestCameraPermission();
-      // Lock orientation to landscape when camera screen is shown (like mobile app)
       lockOrientation();
     }, 500);
 
@@ -202,395 +176,301 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       clearTimeout(timer);
       window.removeEventListener('resize', handleOrientationChange);
       window.removeEventListener('orientationchange', handleOrientationChange);
-      // Unlock orientation when component unmounts
       unlockOrientation();
     };
   }, [isMobile]);
 
-    // Detection phase - Real-world car inspection flow
+  // Cleanup timers on unmount
+  // Check orientation on mount and when it changes
   useEffect(() => {
-    console.log('🔍 Detection useEffect triggered - status:', status, 'currentPosition:', currentPosition);
-    if (status === 'detecting' && currentPosition < POSITIONS.length && !completionTriggered && !showTutorial) {
-      console.log('🚀 Starting detection phase for position:', currentPosition, 'recordingPhase:', recordingPhase);
-      
-      // Reset detection state for new position (only if not already completed)
-      if (!carDetected) {
-        // reset any previous pacing timers (no-op now)
-        setCarDetected(false);
-        setShowGuidance(true);
-      }
-      
-      // Show position-specific guidance
-      const positionMessages = {
-        0: 'Position your camera at the FRONT of the car',
-        1: 'Move to the RIGHT side of the car',
-        2: 'Move to the BACK of the car', 
-        3: 'Move to the LEFT side of the car'
-      };
-      
-      setGuidanceMessage(positionMessages[currentPosition as keyof typeof positionMessages] || 'Positioning camera...');
-      
-      // Run car detection every 1 second (less frequent for better UX)
-      const detectionInterval = setInterval(async () => {
-        console.log('🔄 Detection interval: Running detection check');
-        if (model && !modelLoading && detectCarRef.current && !completionTriggered) {
-          console.log('🔄 Detection interval: Model ready, running detection');
-          const detected = await detectCarRef.current();
-          console.log('🔄 Detection interval: Detection result:', detected);
-          if (detected && !completionTriggered) {
-            console.log('🔄 Detection interval: Car detected, updating UI');
-            
-            // Set flag to prevent multiple completions
-            setCompletionTriggered(true);
-            // Stop further detection
-            clearInterval(detectionInterval);
-            // Clear fallback timer if running
-            if (detectionTimerRef.current) {
-              clearTimeout(detectionTimerRef.current);
-              detectionTimerRef.current = null;
-            }
-            // UX: wait 2 seconds before turning stencil green, then capture & upload
-            if (greenDelayRef.current) {
-              clearTimeout(greenDelayRef.current);
-            }
-            greenDelayRef.current = setTimeout(() => {
-              setIsStencilGreen(true);
-              // Show calm guidance during upload
-              setGuidanceMessage('Keep steady');
-              setShowGuidance(true);
-              triggerCaptureAndUpload();
-            }, 2000);
-          }
-        } else {
-          console.log('🔄 Detection interval: Model not ready or completion triggered - model:', !!model, 'loading:', modelLoading, 'ref:', !!detectCarRef.current, 'completionTriggered:', completionTriggered);
-        }
-      }, 1000); // Reduced frequency for better UX
-      
-      // Fallback timer - if no car detected after 15 seconds, show message and proceed
-      detectionTimerRef.current = setTimeout(() => {
-        console.log('⏰ 15 seconds elapsed - no car detected, proceeding anyway');
-        if (!completionTriggered) {
-          setShowGuidance(true);
-          const positionNames = ['FRONT', 'RIGHT', 'BACK', 'LEFT'];
-          setGuidanceMessage(`${positionNames[currentPosition]} view not captured. Moving to next position in 3 seconds...`);
-          
-          // Wait 3 seconds to show the message, then move to next position
-          setTimeout(() => {
-            setStatus('ready');
-            setShowGuidance(false);
-            completePosition();
-          }, 3000);
-        }
-        
-        clearInterval(detectionInterval);
-      }, 15000); // Increased to 15 seconds for real-world movement
+    const checkOrientation = () => {
+      const isLandscape = window.innerWidth > window.innerHeight;
+      setOrientationError(!isLandscape);
+    };
+
+    // Check on mount
+    checkOrientation();
+
+    // Listen for orientation changes
+    window.addEventListener('resize', checkOrientation);
+    window.addEventListener('orientationchange', checkOrientation);
       
       return () => {
-        clearInterval(detectionInterval);
-        if (detectionTimerRef.current) {
-          clearTimeout(detectionTimerRef.current);
-        }
-        if (greenDelayRef.current) {
-          clearTimeout(greenDelayRef.current);
-          greenDelayRef.current = null;
-        }
-      };
-    }
+      window.removeEventListener('resize', checkOrientation);
+      window.removeEventListener('orientationchange', checkOrientation);
+    };
+  }, []);
 
+  useEffect(() => {
     return () => {
-      if (detectionTimerRef.current) {
-        clearTimeout(detectionTimerRef.current);
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
       }
-      if (greenDelayRef.current) {
-        clearTimeout(greenDelayRef.current);
-        greenDelayRef.current = null;
+      captureTimersRef.current.forEach(timer => clearTimeout(timer));
+      
+      // Stop video recording if active
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
       }
     };
-  }, [status, currentPosition, model, modelLoading, showTutorial]);
+  }, []);
 
-  // Car detection function
-  const detectCar = useCallback(async () => {
-    if (!model || !webcamRef.current) {
-      console.log('🔍 Car detection: Model or webcam not available');
-      return false;
-    }
-    
+  const startVideoRecording = useCallback(async () => {
     try {
-      const imageSrc = webcamRef.current.getScreenshot();
-      if (!imageSrc) {
-        console.log('🔍 Car detection: No screenshot available');
-        return false;
-      }
-      
-      console.log('🔍 Car detection: Starting detection for position', currentPosition);
-      
-      // Create image element
-      const img = new Image();
-      img.src = imageSrc;
-      
-      await new Promise((resolve) => {
-        img.onload = resolve;
+      if (!webcamRef.current?.video) return;
+
+      const stream = webcamRef.current.video.srcObject as MediaStream;
+      if (!stream) return;
+
+      videoStreamRef.current = stream;
+      recordedChunksRef.current = [];
+
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'video/webm;codecs=vp9'
       });
-      
-      // Run detection
-      const predictions = await model.detect(img);
-      console.log('🔍 Car detection: Raw predictions:', predictions);
-      
-      // Look for car, truck, or bus with slightly lower threshold and choose the largest area
-      const vehiclePreds = predictions.filter(pred =>
-        (pred.class === 'car' || pred.class === 'truck' || pred.class === 'bus') &&
-        pred.score > 0.6
-      );
-      const carPrediction = vehiclePreds.sort((a, b) => {
-        const [, , aw, ah] = a.bbox as [number, number, number, number];
-        const [, , bw, bh] = b.bbox as [number, number, number, number];
-        return (bw * bh) - (aw * ah);
-      })[0];
 
-      // Helper: determine if bbox is fully inside the stencil area and large enough
-      const isBoxInsideStencil = (bbox: [number, number, number, number], frameW: number, frameH: number): boolean => {
-        const [bx, by, bw, bh] = bbox;
+      mediaRecorderRef.current = mediaRecorder;
 
-        // Define stencil rect based on current position UI layout
-        let sx = 0;
-        let sy = 0;
-        let sw = frameW;
-        let sh = frameH;
-        // For front (0) and back (2), stencil is 70% width centered with 15% margins
-        if (currentPosition === 0 || currentPosition === 2) {
-          sw = frameW * 0.70;
-          sx = frameW * 0.15;
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          recordedChunksRef.current.push(event.data);
         }
-        // For right (1) and left (3), stencil is 80% width centered with 10% margins
-        if (currentPosition === 1 || currentPosition === 3) {
-          sw = frameW * 0.80;
-          sx = frameW * 0.10;
-        }
-
-        // Require bbox fully inside stencil with a small padding
-        const paddingX = sw * 0.02; // 2% horizontal padding
-        const paddingY = sh * 0.02; // 2% vertical padding
-
-        console.log('📐 Fit check:', {
-          position: currentPosition,
-          frame: { frameW, frameH },
-          stencil: { sx, sy, sw, sh },
-          padding: { paddingX, paddingY },
-          bbox: { bx, by, bw, bh }
-        });
-
-        const leftOk = bx >= sx + paddingX;
-        const topOk = by >= sy + paddingY;
-        const rightOk = bx + bw <= sx + sw - paddingX;
-        const bottomOk = by + bh <= sy + sh - paddingY;
-        const inside = leftOk && topOk && rightOk && bottomOk;
-
-        if (!inside) {
-          console.log('❌ Inside fail:', { leftOk, topOk, rightOk, bottomOk });
-          return false;
-        }
-
-        // Size constraints: make sure car fills most of the stencil (i.e., whole car present)
-        const widthRatio = bw / sw;   // portion of stencil width the car covers
-        const heightRatio = bh / sh;  // portion of stencil height the car covers
-
-        // Tunable thresholds: require substantial coverage but not overfilling
-        const minWidth = (currentPosition === 0 || currentPosition === 2) ? 0.50 : 0.35;
-        const minHeight = 0.45;
-        const maxWidth = 0.98;
-        const maxHeight = 0.98;
-
-        const coverageOk = (
-          widthRatio >= minWidth &&
-          heightRatio >= minHeight &&
-          widthRatio <= maxWidth &&
-          heightRatio <= maxHeight
-        );
-
-        console.log('📊 Coverage ratios:', {
-          widthRatio: widthRatio.toFixed(3),
-          heightRatio: heightRatio.toFixed(3),
-          thresholds: { minWidth, minHeight, maxWidth, maxHeight },
-          coverageOk
-        });
-
-        return coverageOk;
       };
 
-      if (carPrediction) {
-        // Validate that the detected car fits well inside our stencil
-        const frameW = img.width;
-        const frameH = img.height;
-        const bbox = carPrediction.bbox as [number, number, number, number];
-        console.log('🎯 Selected car prediction:', {
-          class: carPrediction.class,
-          score: carPrediction.score,
-          bbox
-        });
-        const fitsStencil = isBoxInsideStencil(bbox, frameW, frameH);
-
-        if (fitsStencil) {
-          console.log('🚗 Car detected INSIDE stencil. Class:', carPrediction.class, 'Confidence:', carPrediction.score);
-          setCarDetected(true);
-          return true;
-        }
-
-        console.log('⚠️ Car detected but not fully inside stencil. Waiting... bbox:', bbox, 'frame:', { frameW, frameH });
-        setCarDetected(false);
-        return false;
-      } else {
-        console.log('❌ No car detected. Available objects:', predictions.map(p => `${p.class}(${p.score.toFixed(2)})`));
-        setCarDetected(false);
-        return false;
-      }
+      mediaRecorder.start(1000); // Record in 1-second chunks
+      console.log('Video recording started');
     } catch (error) {
-      console.error('🔍 Car detection error:', error);
-      return false;
+      console.error('Failed to start video recording:', error);
     }
-  }, [model, currentPosition]);
+  }, []);
 
-  // Store detectCar function in ref to avoid circular dependency
-  useEffect(() => {
-    detectCarRef.current = detectCar;
-  }, [detectCar]);
-
-  // Auto-advancement is now handled in the detection phase
-  // This useEffect is no longer needed since we auto-advance from detection
-
-  // Legacy recording timer removed; detection + countdown handles flow
-
-  const completePosition = useCallback(() => {
-    console.log('✅ Completing position:', currentPosition);
-    
-    // Prevent multiple completions
-    if (currentPosition >= POSITIONS.length || completedPositions.includes(currentPosition)) {
-      console.log('⚠️ Position already completed, skipping');
-      return;
-    }
-    
-    setCompletedPositions(prev => [...prev, currentPosition]);
-    
-    if (currentPosition < POSITIONS.length - 1) {
-      // Move to next position
-      const nextPosition = currentPosition + 1;
-      console.log('🔄 Moving to next position:', nextPosition);
-      setCurrentPosition(prev => prev + 1);
-      // Pause detection to give the user time to move to the next side
-      setStatus('ready');
-      // reset any previous pacing timers (no-op now)
-      
-      // Reset completion state for next position
-      setCompletionTriggered(false);
-      setCarDetected(false);
-      
-      // Update recordingPhase to match mobile app
-      if (nextPosition === 1) {
-        console.log('🔄 Setting recordingPhase to: right');
-        setRecordingPhase('right');
-      } else if (nextPosition === 2) {
-        console.log('🔄 Setting recordingPhase to: back');
-        setRecordingPhase('back');
-      } else if (nextPosition === 3) {
-        console.log('🔄 Setting recordingPhase to: left');
-        setRecordingPhase('left');
+  const stopVideoRecording = useCallback((): Promise<Blob | null> => {
+    return new Promise((resolve) => {
+      if (!mediaRecorderRef.current) {
+        resolve(null);
+        return;
       }
-      
-      // Show guidance for next position (matching mobile app messages)
-      const nextPos = POSITIONS[currentPosition + 1];
-      let message = '';
-      if (nextPos.id === 'right') {
-        message = 'Turn to the right of the car';
-      } else if (nextPos.id === 'back') {
-        message = 'Turn to the back of the car';
-      } else if (nextPos.id === 'left') {
-        message = 'Turn to the left of the car';
-      }
-      setGuidanceMessage(message);
-      setShowGuidance(true);
-      
-      // Give the user 4 seconds to move before detection resumes
+
+      mediaRecorderRef.current.onstop = () => {
+        const videoBlob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+        console.log('Video recording stopped, blob size:', videoBlob.size);
+        resolve(videoBlob);
+      };
+
+      mediaRecorderRef.current.stop();
+    });
+  }, []);
+
+  const startScan = useCallback(async () => {
+    setStatus('recording');
+    setRecordingTime(0);
+    setCurrentPhase(0);
+    capturedImagesRef.current = {};
+    startTimeRef.current = Date.now();
+    setCameraBlurred(false); // Remove blur when scan starts
+
+    // Start video recording
+    await startVideoRecording();
+
+    // Start recording timer
+    recordingIntervalRef.current = setInterval(() => {
+      setRecordingTime(() => {
+        const elapsed = (Date.now() - startTimeRef.current) / 1000;
+        return Math.floor(elapsed);
+      });
+    }, 100);
+
+        // Enhanced capture flow with better instruction timing
+        CAPTURE_PHASES.forEach((phase, index) => {
+          if (index === 0) {
+            // First phase: Just hold steady
+            const holdTimer = setTimeout(() => {
+              setCurrentInstruction('Hold steady for 2 seconds');
+              setIsHoldSteady(true);
+              setShowMovementAnimation(false);
+            }, Math.max(0, phase.timing - 2) * 1000);
+
+            const captureTimer = setTimeout(() => {
+              captureImage(phase.phase, phase.timing);
+              setCurrentPhase(index);
+              setCurrentInstruction('Front captured!');
+              setIsHoldSteady(false);
+              
+              // Clear instruction after 2 seconds
       setTimeout(() => {
-        // After guidance period, return to detection and switch stencil back to red
-        setShowGuidance(false);
-        setIsStencilGreen(false);
-        setStatus('detecting');
-      }, 4000);
-    } else {
-      // All positions completed
-      console.log('🎉 All positions completed!');
-      setRecordingPhase('complete');
-      // Persist recent claim IDs for dashboard use
-      try {
-        const mapJson = localStorage.getItem('claimsByPosition');
-        if (mapJson) {
-          const map = JSON.parse(mapJson) as Record<Position, number | null>;
-          const ids = Object.values(map).filter((v): v is number => typeof v === 'number');
-          localStorage.setItem('recentClaimIds', JSON.stringify(ids));
-        }
-      } catch {}
-      onComplete();
-    }
-  }, [currentPosition, onComplete]);
+                setCurrentInstruction('');
+      }, 2000);
+            }, phase.timing * 1000);
+            
+            captureTimersRef.current.push(holdTimer, captureTimer);
+          } else {
+            // Subsequent phases: Move → Hold → Capture
+            const moveTimer = setTimeout(() => {
+              setCurrentInstruction(`${phase.instruction} for 10 seconds`);
+              setShowMovementAnimation(true);
+              setIsHoldSteady(false);
+            }, Math.max(0, phase.timing - 12) * 1000);
 
-  const triggerCaptureAndUpload = useCallback(async () => {
+            const holdTimer = setTimeout(() => {
+              setCurrentInstruction('Hold steady for 2 seconds');
+              setIsHoldSteady(true);
+              setShowMovementAnimation(false);
+            }, Math.max(0, phase.timing - 2) * 1000);
+
+            const captureTimer = setTimeout(() => {
+              captureImage(phase.phase, phase.timing);
+              setCurrentPhase(index);
+              setCurrentInstruction(`${phase.label} captured!`);
+              setIsHoldSteady(false);
+              
+              // Clear instruction after 2 seconds
+      setTimeout(() => {
+                setCurrentInstruction('');
+      }, 2000);
+              
+              // Stop video recording after last image is captured
+              if (index === CAPTURE_PHASES.length - 1) {
+                setTimeout(() => {
+                  completeScan();
+                }, 2000); // Wait 2 seconds after last capture
+              }
+            }, phase.timing * 1000);
+            
+            captureTimersRef.current.push(moveTimer, holdTimer, captureTimer);
+          }
+        });
+  }, [startVideoRecording]);
+
+  const captureImage = useCallback(async (phase: CapturePhase, captureTime: number) => {
     try {
-      if (!webcamRef.current) {
-        completePosition();
-        return;
-      }
-      // Take snapshot immediately after turning green (no countdown)
-      const imageSrc = webcamRef.current.getScreenshot();
-      if (!imageSrc) {
-        completePosition();
-        return;
-      }
+      if (!webcamRef.current) return;
 
-      // Upload flow
-      setIsUploading(true);
-      setGuidanceMessage('Keep steady');
-      setShowGuidance(true);
-      const fileName = `${POSITIONS[currentPosition].id}-${Date.now()}.jpg`;
+      const imageSrc = webcamRef.current.getScreenshot();
+      if (!imageSrc) return;
+
+      // Store in ref
+      capturedImagesRef.current[phase] = imageSrc;
+
+      console.log(`Captured ${phase} image at ${captureTime}s`);
+    } catch (error) {
+      console.error(`Failed to capture ${phase} image:`, error);
+    }
+  }, []);
+
+  const completeScan = useCallback(async () => {
+      setStatus('processing');
+    
+    // Clear all timers
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+    }
+    captureTimersRef.current.forEach(timer => clearTimeout(timer));
+    captureTimersRef.current = [];
+
+    try {
+      console.log('Captured images from ref:', capturedImagesRef.current);
+      console.log('Vehicle details:', vehicleDetails);
+      
+      // Stop video recording and get the blob
+      const videoBlob = await stopVideoRecording();
+      
+      // Upload video to S3 using video upload service
+      let videoUrl = '';
+      if (videoBlob) {
+        const videoFileName = `inspection_video-${Date.now()}.webm`;
+        const videoContentType = 'video/webm';
+        
+        console.log('🎥 Calling VIDEO upload endpoint with:', { videoFileName, videoContentType });
+        
+        const { presignedUrl: videoPresignedUrl, s3Url: videoS3Url } = await getVideoPresignedUploadUrl({ 
+          fileName: videoFileName, 
+          contentType: videoContentType 
+        });
+        
+        console.log('🎥 Video presigned URL received:', videoPresignedUrl);
+        console.log('🎥 Video S3 URL:', videoS3Url);
+        
+        await uploadVideoToS3({ 
+          presignedUrl: videoPresignedUrl, 
+          file: videoBlob, 
+          contentType: videoContentType 
+        });
+        
+        videoUrl = videoS3Url;
+        console.log('🎥 Video uploaded to S3:', videoUrl);
+      }
+      
+      // Upload all captured images to S3
+      const imageUrls: { type: CapturePhase; imageUrl: string }[] = [];
+      
+      for (const [phase, imageSrc] of Object.entries(capturedImagesRef.current)) {
+        if (imageSrc) {
+          const fileName = `car_${phase}-${Date.now()}.jpg`;
       const contentType = 'image/jpeg';
-      const { presignedUrl, fileKey, s3Url } = await getPresignedUploadUrl({ fileName, contentType });
+          
+          const { presignedUrl, s3Url } = await getPresignedUploadUrl({ fileName, contentType });
       const blob = await dataUrlToJpegBlob(imageSrc);
       await uploadFileToS3({ presignedUrl, file: blob, contentType });
-      const result = await startS3Processing({
-        carMake: vehicleDetails?.make || 'Unknown',
-        carModel: vehicleDetails?.model || 'Unknown',
-        imageUrl: s3Url,
-        fileKey,
-      });
+          
+          imageUrls.push({
+            type: phase as CapturePhase,
+            imageUrl: s3Url
+          });
+        }
+      }
 
-      // Save claimId mapped to position in localStorage
-      const pos = POSITIONS[currentPosition].id;
-      try {
-        const mapJson = localStorage.getItem('claimsByPosition');
-        const currentMap: Record<Position, number | null> = mapJson ? JSON.parse(mapJson) : { front: null, right: null, back: null, left: null };
-        currentMap[pos] = result.claimId;
-        localStorage.setItem('claimsByPosition', JSON.stringify(currentMap));
-      } catch {}
+      console.log('Uploaded images:', imageUrls);
 
-      setGuidanceMessage(`${POSITIONS[currentPosition].label} snapshot captured!`);
-      setShowGuidance(true);
-    } catch (err) {
-      console.error('Capture/upload error:', err);
-      setGuidanceMessage('Failed to upload snapshot. Moving to next.');
-      setShowGuidance(true);
-    } finally {
-      setIsUploading(false);
-      // Proceed to next position and give the user a few seconds via guidance in completePosition
-      completePosition();
+      // Submit car inspection with video URL
+      if (imageUrls.length === 4 && vehicleDetails?.regNumber && videoUrl) {
+        const response = await submitCarInspection({
+          registrationNumber: vehicleDetails.regNumber,
+          images: imageUrls,
+          videoUrl: videoUrl
+        });
+
+        setSuccessData({
+          inspectionId: response.inspectionId,
+          registrationNumber: response.registrationNumber,
+          estimatedTime: '1-2 hours' // Default since new API doesn't have this field
+        });
+        setShowSuccess(true);
+    } else {
+        throw new Error(`Missing images (${imageUrls.length}/4), video (${videoUrl ? 'yes' : 'no'}), or registration number (${vehicleDetails?.regNumber})`);
+      }
+    } catch (error) {
+      console.error('Scan completion error:', error);
+      setStatus('error');
     }
-  }, [currentPosition, vehicleDetails, completePosition]);
+  }, [vehicleDetails, stopVideoRecording]);
 
-
-
-  const getStatusColor = () => {
-    // Green only after the 2s UX delay has elapsed
-    return isStencilGreen ? '#4CAF50' : '#e53935';
-  };
-
-
+  const resetScan = useCallback(() => {
+    setStatus('idle');
+    setCurrentPhase(0);
+    setRecordingTime(0);
+    capturedImagesRef.current = {};
+    recordedChunksRef.current = [];
+    setShowSuccess(false);
+    setSuccessData(null);
+    
+    // Reset new UI state
+    setCurrentInstruction('');
+    setIsHoldSteady(false);
+    setShowMovementAnimation(false);
+    setCameraBlurred(true);
+    
+    // Clear all timers
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+    }
+    captureTimersRef.current.forEach(timer => clearTimeout(timer));
+    captureTimersRef.current = [];
+    
+    // Stop video recording if active
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+  }, []);
 
   // Handle camera permission retry
   const handleRetryCamera = () => {
@@ -598,7 +478,6 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     setCameraError('');
     setShowPermissionRequest(false);
     
-    // Retry after a short delay
     setTimeout(() => {
       const requestCameraPermission = async () => {
         try {
@@ -621,6 +500,18 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     }, 100);
   };
 
+  // Show success screen
+  if (showSuccess && successData) {
+    return (
+      <SuccessScreen
+        inspectionId={successData.inspectionId}
+        registrationNumber={successData.registrationNumber}
+        estimatedTime={successData.estimatedTime}
+        onBack={onComplete}
+      />
+    );
+  }
+
   // Show permission request screen
   if (showPermissionRequest) {
     return (
@@ -636,10 +527,9 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
             </div>
             <h2 className="text-2xl font-bold text-white mb-4">Camera Permission Required</h2>
             <p className="text-gray-300 mb-6">
-              This app needs camera access to analyze car damage. Please allow camera permission in your browser settings.
+              This app needs camera access to scan your car. Please allow camera permission in your browser settings.
             </p>
             
-            {/* Mobile-specific instructions */}
             <div className="bg-blue-500/20 border border-blue-500/30 rounded-xl p-4 mb-6">
               <h3 className="text-blue-400 font-semibold mb-2">How to enable camera:</h3>
               <div className="text-left text-sm text-gray-300 space-y-2">
@@ -700,7 +590,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
             </div>
             <h2 className="text-2xl font-bold text-white mb-4">Rotate Your Device</h2>
             <p className="text-gray-300 mb-6">
-              For the best car damage analysis experience, please rotate your device to landscape mode.
+              For the best car scanning experience, please rotate your device to landscape mode.
             </p>
             
             <div className="bg-orange-500/20 border border-orange-500/30 rounded-xl p-4 mb-6">
@@ -712,7 +602,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
                 </div>
                 <div className="flex items-start gap-2">
                   <span className="bg-orange-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">•</span>
-                  <span>More accurate stencil alignment</span>
+                  <span>More accurate analysis</span>
                 </div>
                 <div className="flex items-start gap-2">
                   <span className="bg-orange-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">•</span>
@@ -766,65 +656,47 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     );
   }
 
-    // Check if user can perform assessment
-    if (!canPerformAssessment) {
-      return (
-        <div className="relative w-full h-screen bg-black overflow-hidden">
-          <div className="absolute inset-0 flex items-center justify-center">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 max-w-md mx-4 text-center"
-            >
-              <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
-                <AlertTriangle className="w-10 h-10 text-red-400" />
-              </div>
-              <h2 className="text-2xl font-bold text-white mb-4">Upload Limit Reached</h2>
-              <p className="text-gray-300 mb-6">
-                You don't have enough uploads remaining to perform a complete car damage assessment. 
-                Each assessment requires 4 uploads.
-              </p>
-              
-              {limitInfo && (
-                <div className="bg-red-500/20 border border-red-500/30 rounded-xl p-4 mb-6">
-                  <div className="text-left text-sm text-gray-300 space-y-2">
-                    <div className="flex justify-between">
-                      <span>Remaining uploads:</span>
-                      <span className="text-red-400 font-semibold">{limitInfo.stats.remainingUploads}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Required for assessment:</span>
-                      <span className="text-white font-semibold">4</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              <div className="space-y-3">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={onBack}
-                  className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-xl"
-                >
-                  Go Back
-                </motion.button>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      );
-    }
-
+  // Show orientation error if not in landscape
+  if (orientationError) {
     return (
+      <div className="relative w-full h-screen bg-black flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+          className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 max-w-md mx-4 text-center border border-white/20"
+        >
+          <div className="w-24 h-24 bg-orange-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <motion.div
+              animate={{ rotate: [0, 90, 0] }}
+              transition={{ duration: 2, repeat: Infinity }}
+              className="text-4xl"
+            >
+              📱
+            </motion.div>
+            </div>
+          <h2 className="text-2xl font-bold text-white mb-4">Rotate Your Device</h2>
+          <p className="text-gray-300 text-lg mb-6">
+            Please rotate your device to landscape mode for the best scanning experience.
+          </p>
+          <div className="bg-orange-500/20 border border-orange-500/30 rounded-xl p-4">
+            <p className="text-orange-200 text-sm">
+              📱 → 📱 (Portrait) → 📱 (Landscape)
+            </p>
+            </div>
+          </motion.div>
+      </div>
+    );
+  }
+
+  return (
     <div className="relative w-full h-screen bg-black overflow-hidden">
-      {/* Simple Camera - No Transforms, No Scaling */}
+      {/* Camera Feed */}
       <div className="absolute inset-0">
         <Webcam
           ref={webcamRef}
           audio={false}
           screenshotFormat="image/jpeg"
-          className="w-full h-full object-cover"
+          className={`w-full h-full object-cover transition-all duration-500 ${cameraBlurred ? 'blur-md' : ''}`}
           videoConstraints={{
             facingMode: 'environment',
             width: { ideal: 1920 },
@@ -840,49 +712,107 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
             setShowPermissionRequest(true);
           }}
         />
+        
+        {/* Camera Blur Overlay */}
+        {cameraBlurred && (
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm">
+            {/* Top Section - Instructions */}
+            <div className="absolute top-8 left-1/2 transform -translate-x-1/2 text-center px-4">
+              <motion.div
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="bg-white/10 backdrop-blur-lg rounded-2xl px-6 py-4 border border-white/20"
+              >
+                <h3 className="text-xl font-bold text-white mb-2">Ready to Scan</h3>
+                <p className="text-white/80 text-sm">Follow the guided movement instructions</p>
+              </motion.div>
       </div>
-      {status === 'detecting' && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ zIndex: 25 }}>
+
+            {/* Center Section - Visual Cue */}
+            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.5 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.4, type: "spring", stiffness: 200 }}
+                className="w-32 h-32 bg-gradient-to-br from-blue-500/20 to-purple-500/20 backdrop-blur-lg rounded-full flex items-center justify-center border border-white/20"
+              >
+                <motion.div
+                  animate={{ scale: [1, 1.1, 1] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                  className="w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center"
+                >
+                  <Play className="w-8 h-8 text-white ml-1" />
+                </motion.div>
+              </motion.div>
+            </div>
+
+            {/* Bottom Section - Primary Action */}
+            <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 w-full max-w-sm px-4">
+              <motion.button
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.6 }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={startScan}
+                className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-bold py-4 px-8 rounded-2xl shadow-2xl flex items-center justify-center gap-3 transition-all duration-200"
+              >
+                <Play className="w-6 h-6" />
+                <span className="text-lg">Start Scan</span>
+              </motion.button>
+              
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.8 }}
+                className="text-center text-white/60 text-sm mt-3"
+              >
+                Tap "Start Scan" to begin recording
+              </motion.p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Processing Overlay */}
+      {status === 'processing' && (
+        <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5 }}
-            className="absolute inset-0 flex items-center justify-center"
-            style={{
-              position: 'absolute',
-              left: 0,
-              top: 0,
-              bottom: 0,
-              right: 0,
-              width: '100%',
-              height: '100%',
-              borderRadius: 0,
-              borderWidth: 0,
-              borderColor: 'transparent',
-              backgroundColor: 'rgba(0,0,0,0.04)',
-              alignItems: 'stretch',
-              justifyContent: 'center',
-              zIndex: 20
-            }}
+            className="text-center"
           >
-            <img
-              src={currentPosData.image}
-              alt={`${currentPosData.label} stencil`}
-              style={{
-                width: '100%',
-                height: '100%',
-                alignSelf: 'stretch',
+            <div className="w-32 h-32 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-8">
+              <Brain className="w-16 h-16 text-blue-400 animate-pulse" />
+            </div>
+            <h3 className="text-3xl font-bold text-white mb-6">PROCESSING</h3>
+            <p className="text-white/80 text-lg">Uploading video and submitting inspection...</p>
+          </motion.div>
+        </div>
+      )}
 
-                ...(currentPosition === 2 && {
-                  height: '100%',
-                  width: '70%',
-                  marginLeft: '15%'
-                }),
-                filter: `drop-shadow(0 0 20px ${getStatusColor()}) brightness(0) saturate(100%) ${getStatusColor() === '#4CAF50' ? 'invert(48%) sepia(79%) saturate(2476%) hue-rotate(86deg) brightness(118%) contrast(119%)' : 'invert(27%) sepia(51%) saturate(2878%) hue-rotate(346deg) brightness(104%) contrast(97%)'}`,
-                opacity: 1,
-                objectFit: currentPosition === 0 || currentPosition === 2 ? 'fill' : 'cover'
-              }}
-            />
+      {/* Error Overlay */}
+      {status === 'error' && (
+        <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
+              <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="text-center"
+          >
+            <div className="w-32 h-32 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-8">
+              <AlertTriangle className="w-16 h-16 text-red-400" />
+            </div>
+            <h3 className="text-3xl font-bold text-white mb-6">SCAN FAILED</h3>
+            <p className="text-white/80 text-lg mb-8">Something went wrong during the scan process.</p>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={resetScan}
+              className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-8 rounded-xl"
+            >
+              Try Again
+            </motion.button>
           </motion.div>
         </div>
       )}
@@ -892,9 +822,9 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
         onClick={onBack}
-        className="absolute top-5 left-5 w-12 h-12 bg-black/50 rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-colors z-50"
+        className="absolute top-5 left-5 w-12 h-12 bg-white/10 backdrop-blur-lg rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all duration-200 z-50"
       >
-        <ArrowLeft className="w-7 h-7" style={{ color: '#43cea2' }} />
+        <ArrowLeft className="w-7 h-7" />
       </motion.button>
 
       {/* Help Button */}
@@ -902,105 +832,253 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         initial={{ opacity: 0, x: 20 }}
         animate={{ opacity: 1, x: 0 }}
         onClick={() => setShowTutorial(true)}
-        className="absolute top-5 right-5 w-12 h-12 bg-black/50 rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-colors z-50"
+        className="absolute top-5 right-5 w-12 h-12 bg-white/10 backdrop-blur-lg rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all duration-200 z-50"
       >
-        <HelpCircle className="w-7 h-7" style={{ color: '#43cea2' }} />
+        <HelpCircle className="w-7 h-7" />
       </motion.button>
 
+      {/* Recording Timer */}
+      {status === 'recording' && (
+        <div className="absolute top-5 left-1/2 transform -translate-x-1/2 bg-red-500/20 backdrop-blur-lg text-white px-6 py-3 rounded-full z-50 border border-red-500/30">
+        <div className="flex items-center gap-3">
+            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+            <span className="font-bold">RECORDING</span>
+            <span className="font-mono">{recordingTime}s</span>
+          </div>
+        </div>
+      )}
 
-
-      {/* Progress Indicator */}
-      <div className="absolute top-5 left-1/2 transform -translate-x-1/2 bg-black/60 text-white px-4 py-2 rounded-full z-50">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">Step {currentPosition + 1} of 4</span>
-          <div className="flex gap-1">
-            {[0, 1, 2, 3].map((pos) => (
-              <div
-                key={pos}
-                className={`w-2 h-2 rounded-full ${
-                  pos < currentPosition 
-                    ? 'bg-green-500' 
-                    : pos === currentPosition 
-                    ? isStencilGreen ? 'bg-green-500' : 'bg-red-500'
-                    : 'bg-gray-500'
-                }`}
+      {/* Progress Ring */}
+      {status === 'recording' && (
+      <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-50">
+          <div className="relative w-24 h-24">
+            <svg className="w-24 h-24 transform -rotate-90" viewBox="0 0 100 100">
+              <circle
+                cx="50"
+                cy="50"
+                r="45"
+                stroke="rgba(255,255,255,0.2)"
+                strokeWidth="8"
+                fill="none"
               />
-            ))}
+              <circle
+                cx="50"
+                cy="50"
+                r="45"
+                stroke="currentColor"
+                strokeWidth="8"
+                fill="none"
+                strokeDasharray={`${2 * Math.PI * 45}`}
+                strokeDashoffset={`${2 * Math.PI * 45 * (1 - recordingTime / 30)}`}
+                className="text-blue-400 transition-all duration-100"
+              />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-white font-bold text-lg">{Math.round((recordingTime / 30) * 100)}%</span>
           </div>
         </div>
       </div>
+      )}
+
+      {/* Enhanced Instructions - Strategic Positioning */}
+      {status === 'recording' && currentInstruction && (
+        <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-sm px-4">
+        <motion.div
+            key={currentInstruction}
+            initial={{ opacity: 0, y: -30, scale: 0.8 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 30, scale: 0.8 }}
+            transition={{ type: "spring", stiffness: 300, damping: 25 }}
+            className={`backdrop-blur-xl rounded-3xl px-6 py-5 border-2 shadow-2xl ${
+              isHoldSteady 
+                ? 'bg-red-500/30 border-red-400/60 text-red-50 shadow-red-500/20' 
+                : currentInstruction.includes('captured')
+                ? 'bg-green-500/30 border-green-400/60 text-green-50 shadow-green-500/20'
+                : 'bg-blue-500/30 border-blue-400/60 text-blue-50 shadow-blue-500/20'
+            }`}
+          >
+            <div className="text-center">
+              {/* Animated Icon */}
+              <motion.div
+                animate={isHoldSteady ? { 
+                  scale: [1, 1.2, 1],
+                  rotate: [0, 5, -5, 0]
+                } : currentInstruction.includes('captured') ? {
+                  scale: [1, 1.2, 1],
+                  rotate: [0, 10, -10, 0]
+                } : showMovementAnimation ? {
+                  x: [-15, 15, -15],
+                  scale: [1, 1.1, 1]
+                } : {
+                  scale: [1, 1.05, 1]
+                }}
+                transition={{ 
+                  duration: isHoldSteady ? 0.8 : currentInstruction.includes('captured') ? 0.6 : showMovementAnimation ? 1.5 : 2,
+                  repeat: Infinity,
+                  ease: "easeInOut"
+                }}
+                className="mb-3"
+              >
+                {isHoldSteady ? (
+                  <div className="w-12 h-12 bg-red-500/40 rounded-full flex items-center justify-center mx-auto border-2 border-red-400/50">
+                    <motion.div
+                      animate={{ scale: [1, 1.3, 1] }}
+                      transition={{ duration: 0.6, repeat: Infinity }}
+                      className="w-6 h-6 bg-red-300 rounded-full"
+                    />
+              </div>
+                ) : currentInstruction.includes('captured') ? (
+                  <div className="w-12 h-12 bg-green-500/40 rounded-full flex items-center justify-center mx-auto border-2 border-green-400/50">
+                    <motion.div
+                      animate={{ scale: [1, 1.2, 1] }}
+                      transition={{ duration: 0.5, repeat: Infinity }}
+                      className="text-2xl text-green-200"
+                    >
+                      ✓
+                    </motion.div>
+            </div>
+                ) : showMovementAnimation ? (
+                  <div className="w-12 h-12 bg-blue-500/40 rounded-full flex items-center justify-center mx-auto border-2 border-blue-400/50">
+                    <motion.div
+                      animate={{ x: [-8, 8, -8] }}
+                      transition={{ duration: 1, repeat: Infinity }}
+                      className="text-2xl text-blue-200"
+                    >
+                      →
+                    </motion.div>
+            </div>
+                ) : (
+                  <div className="w-12 h-12 bg-blue-500/40 rounded-full flex items-center justify-center mx-auto border-2 border-blue-400/50">
+                    <Play className="w-6 h-6 text-blue-200" />
+          </div>
+                )}
+        </motion.div>
+              
+              {/* Instruction Text */}
+              <motion.h3 
+                animate={isHoldSteady ? { scale: [1, 1.05, 1] } : {}}
+                transition={{ duration: 0.5, repeat: isHoldSteady ? Infinity : 0 }}
+                className={`font-bold text-xl mb-2 ${
+                  isHoldSteady 
+                    ? 'text-red-100' 
+                    : currentInstruction.includes('captured')
+                    ? 'text-green-100'
+                    : 'text-blue-100'
+                }`}
+              >
+                {currentInstruction}
+              </motion.h3>
+              
+              {/* Progress Bar for Hold Steady */}
+              {isHoldSteady && (
+                <div className="mt-3">
+          <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: '100%' }}
+                    transition={{ duration: 2, ease: "easeOut" }}
+                    className="h-2 bg-red-400/60 rounded-full overflow-hidden"
+                  >
+                    <motion.div
+                      animate={{ x: ['-100%', '100%'] }}
+                      transition={{ duration: 0.5, repeat: Infinity }}
+                      className="h-full w-1/3 bg-red-300 rounded-full"
+                    />
+                  </motion.div>
+                </div>
+                  )}
+                </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Capture Progress - Subtle Bottom Indicator */}
+      {status === 'recording' && (
+        <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-40">
+          <div className="flex gap-2 bg-black/30 backdrop-blur-lg rounded-full px-4 py-2 border border-white/10">
+            {CAPTURE_PHASES.map((phase, index) => (
+              <motion.div
+                key={phase.phase}
+                initial={{ scale: 0.8, opacity: 0.5 }}
+                animate={{ 
+                  scale: index <= currentPhase ? 1.1 : 0.8,
+                  opacity: index <= currentPhase ? 1 : 0.4
+                }}
+                transition={{ duration: 0.3 }}
+                className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                  index < currentPhase 
+                    ? 'bg-green-400 shadow-lg shadow-green-400/50' 
+                    : index === currentPhase
+                    ? 'bg-blue-400 shadow-lg shadow-blue-400/50'
+                    : 'bg-white/30'
+                }`}
+              />
+            ))}
+              </div>
+            </div>
+        )}
 
 
-      {/* Uploading indicator intentionally omitted; we show 'Keep steady' guidance instead */}
-
-      {/* Clean Guidance Message */}
+      {/* Tutorial Overlay */}
       <AnimatePresence>
-        {showGuidance && guidanceMessage && (
-          guidanceMessage === 'Keep steady' ? (
+        {showTutorial && (
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-lg z-[100] flex items-center justify-center p-4">
             <motion.div
-              key="keep-steady"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
-              className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50"
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              className="bg-white/10 backdrop-blur-lg rounded-3xl p-10 max-w-lg mx-4 text-center border border-white/20"
             >
-              <div className="relative">
-                <div className="absolute -inset-2 rounded-full bg-green-500/10 blur-md animate-pulse" />
-                <div className="relative flex items-center gap-3 bg-black/70 text-white px-5 py-3 rounded-full shadow-lg border border-white/10">
-                  <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center">
-                    <Hand className="w-4 h-4 text-green-400" />
+              <div className="w-24 h-24 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-8">
+                <Brain className="w-12 h-12 text-blue-400" />
+              </div>
+              <h2 className="text-3xl font-bold text-white mb-6">AI-Powered Car Scan</h2>
+              <p className="text-gray-300 text-lg mb-8">
+                Our intelligent system will guide you through a complete 360° scan of your vehicle. 
+                Follow the movement instructions for 10 seconds, then hold steady for 2 seconds while we capture each view.
+              </p>
+              
+              <div className="bg-blue-500/20 border border-blue-500/30 rounded-xl p-6 mb-8">
+                <h3 className="text-blue-400 font-bold mb-4 text-xl">How it works:</h3>
+                <div className="text-left text-gray-300 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">1</span>
+                    <span>Tap "Start Scan" to begin recording</span>
                   </div>
-                  <span className="text-sm font-semibold tracking-wide">Keep steady</span>
-                  <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                  <div className="flex items-start gap-3">
+                    <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">2</span>
+                    <span>Follow the guided movement instructions</span>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">3</span>
+                    <span>AI automatically captures 4 key photos</span>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">4</span>
+                    <span>Images are uploaded and processed</span>
+                  </div>
                 </div>
               </div>
+              
+              <div className="space-y-4">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setShowTutorial(false)}
+                  className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-bold py-4 px-8 rounded-2xl"
+                >
+                  Start Analysis
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={onBack}
+                  className="w-full bg-white/10 border border-white/20 text-white font-semibold py-4 px-8 rounded-2xl"
+                >
+                  Go Back
+                </motion.button>
+              </div>
             </motion.div>
-          ) : (
-            <motion.div
-              key="guidance-generic"
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="absolute top-24 left-1/2 transform -translate-x-1/2 bg-black/80 text-white px-6 py-4 rounded-2xl shadow-lg z-50"
-              style={{
-                maxWidth: '80%',
-                textAlign: 'center'
-              }}
-            >
-              <p className="text-white text-base font-semibold tracking-wide">
-                {guidanceMessage}
-              </p>
-            </motion.div>
-          )
-        )}
-      </AnimatePresence>
-
-
- 
-            {/* Tutorial Overlay */}
-      <AnimatePresence>
-        {showTutorial && (
-          <CameraTutorial
-            onComplete={() => setShowTutorial(false)}
-            onSkip={() => setShowTutorial(false)}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Tutorial Active Indicator */}
-      <AnimatePresence>
-        {showTutorial && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-blue-500/90 text-white px-4 py-2 rounded-full z-40"
-          >
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
-              <span className="text-sm font-semibold">Tutorial Active - Detection Paused</span>
-            </div>
-          </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>
