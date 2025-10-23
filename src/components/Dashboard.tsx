@@ -202,45 +202,45 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
   return (
     <div className="min-h-screen bg-black">
       {/* Header */}
-      <div className="px-8 pt-8 pb-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <div className="px-4 md:px-8 pt-4 md:pt-8 pb-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="flex items-center gap-3 md:gap-4">
             <motion.button
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               onClick={onBack}
-              className="w-12 h-12 bg-white/10 backdrop-blur-lg rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all duration-200"
+              className="w-10 h-10 md:w-12 md:h-12 bg-white/10 backdrop-blur-lg rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all duration-200"
             >
-              <ArrowLeft className="w-7 h-7" />
+              <ArrowLeft className="w-5 h-5 md:w-7 md:h-7" />
             </motion.button>
             <div>
-              <h1 className="text-3xl font-bold text-white">Inspection Dashboard</h1>
-              <p className="text-gray-400">View and manage your car inspections</p>
+              <h1 className="text-xl md:text-3xl font-bold text-white">Inspection Dashboard</h1>
+              <p className="text-gray-400 text-sm md:text-base">View and manage your car inspections</p>
             </div>
           </div>
-          <div className="text-right">
-            <p className="text-white font-semibold text-lg">{inspections.length} Inspections</p>
-            <p className="text-gray-400 text-sm">Total registered</p>
+          <div className="text-left md:text-right">
+            <p className="text-white font-semibold text-base md:text-lg">{inspections.length} Inspections</p>
+            <p className="text-gray-400 text-xs md:text-sm">Total registered</p>
           </div>
         </div>
       </div>
 
       {/* Inspections List */}
-      <div className="px-8 pb-8">
+      <div className="px-4 md:px-8 pb-8">
         {inspections.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-white/10 backdrop-blur-lg rounded-3xl p-12 text-center"
+            className="bg-white/10 backdrop-blur-lg rounded-2xl md:rounded-3xl p-8 md:p-12 text-center"
           >
-            <div className="w-24 h-24 bg-gray-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
-              <Car className="w-12 h-12 text-gray-400" />
+            <div className="w-16 h-16 md:w-24 md:h-24 bg-gray-500/20 rounded-full flex items-center justify-center mx-auto mb-4 md:mb-6">
+              <Car className="w-8 h-8 md:w-12 md:h-12 text-gray-400" />
             </div>
-            <h3 className="text-2xl font-bold text-white mb-4">No Inspections Found</h3>
-            <p className="text-gray-400 text-lg">You haven't completed any car inspections yet.</p>
+            <h3 className="text-lg md:text-2xl font-bold text-white mb-2 md:mb-4">No Inspections Found</h3>
+            <p className="text-gray-400 text-sm md:text-lg">You haven't completed any car inspections yet.</p>
           </motion.div>
         ) : (
-          <div className="grid gap-6">
+          <div className="grid gap-4 md:gap-6">
             <AnimatePresence>
               {inspections.map((inspection, index) => (
                 <motion.div
@@ -249,25 +249,25 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
                   transition={{ delay: index * 0.1 }}
-                  className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 hover:border-white/30 transition-all duration-200"
+                  className="bg-white/10 backdrop-blur-lg rounded-xl md:rounded-2xl p-4 md:p-6 border border-white/20 hover:border-white/30 transition-all duration-200"
                 >
-                  <div className="flex items-start justify-between mb-4">
+                  <div className="flex flex-col md:flex-row md:items-start md:justify-between mb-4 gap-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-blue-500/20 rounded-full flex items-center justify-center">
-                        <Car className="w-6 h-6 text-blue-400" />
+                      <div className="w-10 h-10 md:w-12 md:h-12 bg-blue-500/20 rounded-full flex items-center justify-center">
+                        <Car className="w-5 h-5 md:w-6 md:h-6 text-blue-400" />
                       </div>
                       <div>
-                        <h3 className="text-xl font-bold text-white">{inspection.registrationNumber}</h3>
-                        <p className="text-gray-400 text-sm">Inspection #{inspection.id}</p>
+                        <h3 className="text-lg md:text-xl font-bold text-white">{inspection.registrationNumber}</h3>
+                        <p className="text-gray-400 text-xs md:text-sm">Inspection #{inspection.id}</p>
                       </div>
                     </div>
                     <div className="flex flex-col gap-2">
-                      <div className={`px-3 py-1 rounded-full border flex items-center gap-2 ${getStatusColor(inspection.status)}`}>
+                      <div className={`px-2 md:px-3 py-1 rounded-full border flex items-center gap-2 ${getStatusColor(inspection.status)}`}>
                         {getStatusIcon(inspection.status)}
-                        <span className="font-semibold capitalize">{inspection.status}</span>
+                        <span className="font-semibold capitalize text-xs md:text-sm">{inspection.status}</span>
                       </div>
                       {inspection.approvalStatus && (
-                        <div className={`px-3 py-1 rounded-full border flex items-center gap-2 ${getApprovalStatusColor(inspection.approvalStatus)}`}>
+                        <div className={`px-2 md:px-3 py-1 rounded-full border flex items-center gap-2 ${getApprovalStatusColor(inspection.approvalStatus)}`}>
                           {getApprovalStatusIcon(inspection.approvalStatus)}
                           <span className="font-semibold text-xs">{inspection.approvalStatus}</span>
                         </div>
@@ -275,41 +275,41 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                    <div className="flex items-center gap-3">
-                      <Calendar className="w-5 h-5 text-gray-400" />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 mb-4 md:mb-6">
+                    <div className="flex items-center gap-2 md:gap-3">
+                      <Calendar className="w-4 h-4 md:w-5 md:h-5 text-gray-400" />
                       <div>
-                        <p className="text-gray-400 text-sm">Created</p>
-                        <p className="text-white font-semibold">{formatDate(inspection.createdAt)}</p>
+                        <p className="text-gray-400 text-xs md:text-sm">Created</p>
+                        <p className="text-white font-semibold text-sm md:text-base">{formatDate(inspection.createdAt)}</p>
                       </div>
                     </div>
                     
                     {inspection.completedAt && (
-                      <div className="flex items-center gap-3">
-                        <CheckCircle className="w-5 h-5 text-gray-400" />
+                      <div className="flex items-center gap-2 md:gap-3">
+                        <CheckCircle className="w-4 h-4 md:w-5 md:h-5 text-gray-400" />
                         <div>
-                          <p className="text-gray-400 text-sm">Completed</p>
-                          <p className="text-white font-semibold">{formatDate(inspection.completedAt)}</p>
+                          <p className="text-gray-400 text-xs md:text-sm">Completed</p>
+                          <p className="text-white font-semibold text-sm md:text-base">{formatDate(inspection.completedAt)}</p>
                         </div>
                       </div>
                     )}
 
                     {inspection.totalDamagePercentage !== null && (
-                      <div className="flex items-center gap-3">
-                        <Percent className="w-5 h-5 text-gray-400" />
+                      <div className="flex items-center gap-2 md:gap-3">
+                        <Percent className="w-4 h-4 md:w-5 md:h-5 text-gray-400" />
                         <div>
-                          <p className="text-gray-400 text-sm">Damage</p>
-                          <p className="text-white font-semibold">{inspection.totalDamagePercentage}%</p>
+                          <p className="text-gray-400 text-xs md:text-sm">Damage</p>
+                          <p className="text-white font-semibold text-sm md:text-base">{inspection.totalDamagePercentage}%</p>
                         </div>
                       </div>
                     )}
 
                     {inspection.estimatedCost !== null && (
-                      <div className="flex items-center gap-3">
-                        <DollarSign className="w-5 h-5 text-gray-400" />
+                      <div className="flex items-center gap-2 md:gap-3">
+                        <DollarSign className="w-4 h-4 md:w-5 md:h-5 text-gray-400" />
                         <div>
-                          <p className="text-gray-400 text-sm">Estimated Cost</p>
-                          <p className="text-white font-semibold">{formatCurrency(inspection.estimatedCost)}</p>
+                          <p className="text-gray-400 text-xs md:text-sm">Estimated Cost</p>
+                          <p className="text-white font-semibold text-sm md:text-base">{formatCurrency(inspection.estimatedCost)}</p>
                         </div>
                       </div>
                     )}
@@ -322,17 +322,19 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
                       whileTap={{ scale: 0.98 }}
                       onClick={() => handleDownloadPDF(inspection)}
                       disabled={downloadingPdf === inspection.id}
-                      className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:from-gray-500 disabled:to-gray-600 text-white font-bold py-3 px-6 rounded-xl flex items-center justify-center gap-3 transition-all duration-200"
+                      className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:from-gray-500 disabled:to-gray-600 text-white font-bold py-2 md:py-3 px-4 md:px-6 rounded-lg md:rounded-xl flex items-center justify-center gap-2 md:gap-3 transition-all duration-200 text-sm md:text-base"
                     >
                       {downloadingPdf === inspection.id ? (
                         <>
-                          <Loader className="w-5 h-5 animate-spin" />
-                          Checking PDF...
+                          <Loader className="w-4 h-4 md:w-5 md:h-5 animate-spin" />
+                          <span className="hidden md:inline">Checking PDF...</span>
+                          <span className="md:hidden">Checking...</span>
                         </>
                       ) : (
                         <>
-                          <FileText className="w-5 h-5" />
-                          Download PDF Report
+                          <FileText className="w-4 h-4 md:w-5 md:h-5" />
+                          <span className="hidden md:inline">Download PDF Report</span>
+                          <span className="md:hidden">Download PDF</span>
                         </>
                       )}
                     </motion.button>
@@ -340,36 +342,36 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
 
                   {/* Approval Status Messages */}
                   {inspection.approvalStatus === 'PENDING' && (
-                    <div className="w-full bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 px-4 py-3 rounded-xl text-center">
+                    <div className="w-full bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 px-3 md:px-4 py-2 md:py-3 rounded-lg md:rounded-xl text-center">
                       <div className="flex items-center justify-center gap-2">
-                        <Clock className="w-5 h-5" />
-                        <span className="font-semibold">PDF Ready - Pending Admin Approval</span>
+                        <Clock className="w-4 h-4 md:w-5 md:h-5" />
+                        <span className="font-semibold text-sm md:text-base">PDF Ready - Pending Admin Approval</span>
                       </div>
-                      <p className="text-sm mt-1">Your inspection report is ready but awaiting admin approval.</p>
+                      <p className="text-xs md:text-sm mt-1">Your inspection report is ready but awaiting admin approval.</p>
                     </div>
                   )}
 
                   {inspection.approvalStatus === 'REJECTED' && (
-                    <div className="w-full bg-red-500/20 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl text-center">
+                    <div className="w-full bg-red-500/20 border border-red-500/30 text-red-400 px-3 md:px-4 py-2 md:py-3 rounded-lg md:rounded-xl text-center">
                       <div className="flex items-center justify-center gap-2">
-                        <AlertCircle className="w-5 h-5" />
-                        <span className="font-semibold">Inspection Rejected</span>
+                        <AlertCircle className="w-4 h-4 md:w-5 md:h-5" />
+                        <span className="font-semibold text-sm md:text-base">Inspection Rejected</span>
                       </div>
-                      <p className="text-sm mt-1">
+                      <p className="text-xs md:text-sm mt-1">
                         {inspection.adminNotes || 'Your inspection was rejected by admin. Please contact support for more information.'}
                       </p>
                     </div>
                   )}
 
                   {inspection.status === 'completed' && !inspection.approvalStatus && (
-                    <div className="w-full bg-gray-500/20 border border-gray-500/30 text-gray-400 font-semibold py-3 px-6 rounded-xl text-center">
+                    <div className="w-full bg-gray-500/20 border border-gray-500/30 text-gray-400 font-semibold py-2 md:py-3 px-3 md:px-6 rounded-lg md:rounded-xl text-center text-sm md:text-base">
                       PDF Report Not Available
                     </div>
                   )}
 
                   {inspection.status === 'processing' && (
-                    <div className="w-full bg-blue-500/20 border border-blue-500/30 text-blue-400 font-semibold py-3 px-6 rounded-xl text-center flex items-center justify-center gap-3">
-                      <Loader className="w-5 h-5 animate-spin" />
+                    <div className="w-full bg-blue-500/20 border border-blue-500/30 text-blue-400 font-semibold py-2 md:py-3 px-3 md:px-6 rounded-lg md:rounded-xl text-center flex items-center justify-center gap-2 md:gap-3 text-sm md:text-base">
+                      <Loader className="w-4 h-4 md:w-5 md:h-5 animate-spin" />
                       Report is being generated...
                     </div>
                   )}

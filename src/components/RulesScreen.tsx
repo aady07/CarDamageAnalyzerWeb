@@ -54,54 +54,54 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex items-center justify-between p-6 pt-12"
+        className="flex items-center justify-between p-4 md:p-6 pt-8 md:pt-12"
       >
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={onBack}
-          className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-colors"
+          className="w-8 h-8 md:w-10 md:h-10 bg-white/10 rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-colors"
         >
-          <ArrowRight className="w-5 h-5 rotate-180" />
+          <ArrowRight className="w-4 h-4 md:w-5 md:h-5 rotate-180" />
         </motion.button>
-        <h1 className="text-xl font-bold text-white">Analysis Rules</h1>
-        <div className="w-10 h-10" />
+        <h1 className="text-lg md:text-xl font-bold text-white">Analysis Rules</h1>
+        <div className="w-8 h-8 md:w-10 md:h-10" />
       </motion.div>
 
-      <div className="px-6 pb-20">
+      <div className="px-4 md:px-6 pb-16 md:pb-20">
         {/* Welcome Section */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="text-center mb-8"
+          className="text-center mb-6 md:mb-8"
         >
-          <div className="w-20 h-20 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-            <AlertTriangle className="w-10 h-10 text-blue-400" />
+          <div className="w-16 h-16 md:w-20 md:h-20 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
+            <AlertTriangle className="w-8 h-8 md:w-10 md:h-10 text-blue-400" />
           </div>
-          <h2 className="text-2xl font-bold text-white mb-2">Before We Begin</h2>
-          <p className="text-gray-400 text-lg">
+          <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Before We Begin</h2>
+          <p className="text-gray-400 text-sm md:text-lg">
             Follow these guidelines for the best damage analysis results
           </p>
         </motion.div>
 
         {/* Rules List */}
-        <div className="space-y-4 mb-8">
+        <div className="space-y-3 md:space-y-4 mb-6 md:mb-8">
           {rules.map((rule, index) => (
             <motion.div
               key={index}
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.2 + index * 0.1 }}
-              className="glass-effect rounded-2xl p-6"
+              className="glass-effect rounded-xl md:rounded-2xl p-4 md:p-6"
             >
               <div className="flex items-start">
-                <div className={`w-12 h-12 bg-white/10 rounded-full flex items-center justify-center mr-4 flex-shrink-0`}>
-                  <rule.icon className={`w-6 h-6 ${rule.color}`} />
+                <div className={`w-10 h-10 md:w-12 md:h-12 bg-white/10 rounded-full flex items-center justify-center mr-3 md:mr-4 flex-shrink-0`}>
+                  <rule.icon className={`w-5 h-5 md:w-6 md:h-6 ${rule.color}`} />
                 </div>
                 <div className="flex-1">
-                  <h3 className={`text-lg font-bold ${rule.color} mb-2`}>{rule.title}</h3>
-                  <p className="text-gray-300 text-sm leading-relaxed">{rule.description}</p>
+                  <h3 className={`text-sm md:text-lg font-bold ${rule.color} mb-1 md:mb-2`}>{rule.title}</h3>
+                  <p className="text-gray-300 text-xs md:text-sm leading-relaxed">{rule.description}</p>
                 </div>
               </div>
             </motion.div>

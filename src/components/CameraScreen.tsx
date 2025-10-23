@@ -274,6 +274,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     capturedImagesRef.current = {};
     startTimeRef.current = Date.now();
     setCameraBlurred(false); // Remove blur when scan starts
+    setShowOrientationTip(false); // Hide orientation tip when scanning starts
 
     // Start video recording
     await startVideoRecording();
@@ -365,6 +366,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
 
   const completeScan = useCallback(async () => {
       setStatus('processing');
+      setShowOrientationTip(false); // Hide orientation tip during processing
     
     // Clear all timers
     if (recordingIntervalRef.current) {
