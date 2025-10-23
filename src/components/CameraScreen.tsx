@@ -80,7 +80,8 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
   const [isHoldSteady, setIsHoldSteady] = useState(false);
   const [showMovementAnimation, setShowMovementAnimation] = useState(false);
   const [cameraBlurred, setCameraBlurred] = useState(true);
-  const [orientationError, setOrientationError] = useState(false);
+  const [isLandscape, setIsLandscape] = useState(false);
+  const [showOrientationTip, setShowOrientationTip] = useState(false);
   
   const webcamRef = useRef<Webcam>(null);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -184,8 +185,13 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
   // Check orientation on mount and when it changes
   useEffect(() => {
     const checkOrientation = () => {
-      const isLandscape = window.innerWidth > window.innerHeight;
-      setOrientationError(!isLandscape);
+      const landscape = window.innerWidth > window.innerHeight;
+      setIsLandscape(landscape);
+      
+      // Show tip if in portrait and user hasn't dismissed it
+      if (!landscape && !localStorage.getItem('orientation-tip-dismissed')) {
+        setShowOrientationTip(true);
+      }
     };
 
     // Check on mount
@@ -656,37 +662,6 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     );
   }
 
-  // Show orientation error if not in landscape
-  if (orientationError) {
-    return (
-      <div className="relative w-full h-screen bg-black flex items-center justify-center p-4">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-          className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 max-w-md mx-4 text-center border border-white/20"
-        >
-          <div className="w-24 h-24 bg-orange-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
-            <motion.div
-              animate={{ rotate: [0, 90, 0] }}
-              transition={{ duration: 2, repeat: Infinity }}
-              className="text-4xl"
-            >
-              📱
-            </motion.div>
-            </div>
-          <h2 className="text-2xl font-bold text-white mb-4">Rotate Your Device</h2>
-          <p className="text-gray-300 text-lg mb-6">
-            Please rotate your device to landscape mode for the best scanning experience.
-          </p>
-          <div className="bg-orange-500/20 border border-orange-500/30 rounded-xl p-4">
-            <p className="text-orange-200 text-sm">
-              📱 → 📱 (Portrait) → 📱 (Landscape)
-            </p>
-            </div>
-          </motion.div>
-      </div>
-    );
-  }
 
   return (
     <div className="relative w-full h-screen bg-black overflow-hidden">
@@ -1018,43 +993,89 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         )}
 
 
+      {/* Orientation Tip */}
+      <AnimatePresence>
+        {showOrientationTip && (
+          <div className="absolute top-4 left-4 right-4 z-[90]">
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="bg-blue-500/20 backdrop-blur-lg rounded-xl p-4 border border-blue-400/30"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="text-2xl">📱</div>
+                  <div>
+                    <p className="text-blue-100 font-semibold text-sm">Better Experience</p>
+                    <p className="text-blue-200 text-xs">Rotate to landscape for easier scanning</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowOrientationTip(false);
+                    localStorage.setItem('orientation-tip-dismissed', 'true');
+                  }}
+                  className="text-blue-300 hover:text-blue-100 text-xl"
+                >
+                  ×
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Tutorial Overlay */}
       <AnimatePresence>
         {showTutorial && (
-          <div className="absolute inset-0 bg-black/90 backdrop-blur-lg z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-lg z-[100] flex items-center justify-center p-4 overflow-y-auto">
             <motion.div
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
-              className="bg-white/10 backdrop-blur-lg rounded-3xl p-10 max-w-lg mx-4 text-center border border-white/20"
+              className="bg-white/10 backdrop-blur-lg rounded-3xl p-6 md:p-10 max-w-lg mx-4 text-center border border-white/20 my-8"
             >
               <div className="w-24 h-24 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-8">
                 <Brain className="w-12 h-12 text-blue-400" />
               </div>
               <h2 className="text-3xl font-bold text-white mb-6">AI-Powered Car Scan</h2>
-              <p className="text-gray-300 text-lg mb-8">
+              <p className="text-gray-300 text-base md:text-lg mb-6">
                 Our intelligent system will guide you through a complete 360° scan of your vehicle. 
                 Follow the movement instructions for 10 seconds, then hold steady for 2 seconds while we capture each view.
               </p>
               
-              <div className="bg-blue-500/20 border border-blue-500/30 rounded-xl p-6 mb-8">
-                <h3 className="text-blue-400 font-bold mb-4 text-xl">How it works:</h3>
-                <div className="text-left text-gray-300 space-y-3">
+              {/* Orientation Recommendation */}
+              {!isLandscape && (
+                <div className="bg-orange-500/20 border border-orange-500/30 rounded-xl p-4 mb-6">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-2xl">📱</span>
+                    <h3 className="text-orange-300 font-bold text-lg">Pro Tip</h3>
+                  </div>
+                  <p className="text-orange-200 text-sm">
+                    Landscape mode provides a better scanning experience, but portrait works too!
+                  </p>
+                </div>
+              )}
+              
+              <div className="bg-blue-500/20 border border-blue-500/30 rounded-xl p-4 md:p-6 mb-6">
+                <h3 className="text-blue-400 font-bold mb-4 text-lg md:text-xl">How it works:</h3>
+                <div className="text-left text-gray-300 space-y-3 text-sm md:text-base">
                   <div className="flex items-start gap-3">
-                    <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">1</span>
+                    <span className="bg-blue-500 text-white rounded-full w-5 h-5 md:w-6 md:h-6 flex items-center justify-center text-xs md:text-sm font-bold flex-shrink-0 mt-0.5">1</span>
                     <span>Tap "Start Scan" to begin recording</span>
                   </div>
                   <div className="flex items-start gap-3">
-                    <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">2</span>
+                    <span className="bg-blue-500 text-white rounded-full w-5 h-5 md:w-6 md:h-6 flex items-center justify-center text-xs md:text-sm font-bold flex-shrink-0 mt-0.5">2</span>
                     <span>Follow the guided movement instructions</span>
                   </div>
                   <div className="flex items-start gap-3">
-                    <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">3</span>
-                    <span>AI automatically captures 4 key photos</span>
+                    <span className="bg-blue-500 text-white rounded-full w-5 h-5 md:w-6 md:h-6 flex items-center justify-center text-xs md:text-sm font-bold flex-shrink-0 mt-0.5">3</span>
+                    <span>Hold steady when prompted for clear captures</span>
                   </div>
                   <div className="flex items-start gap-3">
-                    <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">4</span>
-                    <span>Images are uploaded and processed</span>
+                    <span className="bg-blue-500 text-white rounded-full w-5 h-5 md:w-6 md:h-6 flex items-center justify-center text-xs md:text-sm font-bold flex-shrink-0 mt-0.5">4</span>
+                    <span>Complete all 4 views for full analysis</span>
                   </div>
                 </div>
               </div>
