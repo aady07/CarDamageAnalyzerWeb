@@ -20,6 +20,7 @@ export interface AdminInspection {
   editCount: number;
   lastEditedBy: string | null;
   lastEditedAt: string | null;
+  userId: string;
 }
 
 export interface AdminInspectionDetails extends AdminInspection {

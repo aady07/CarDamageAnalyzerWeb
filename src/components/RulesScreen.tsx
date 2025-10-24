@@ -118,26 +118,6 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
           <UploadLimitsDisplay />
         </motion.div>
 
-        {/* Important Notice */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7 }}
-          className="bg-yellow-500/10 border border-yellow-500/20 rounded-2xl p-6 mb-8"
-        >
-          <div className="flex items-start">
-            <div className="w-10 h-10 bg-yellow-500/20 rounded-full flex items-center justify-center mr-4 flex-shrink-0">
-              <AlertTriangle className="w-5 h-5 text-yellow-400" />
-            </div>
-            <div>
-              <h3 className="text-yellow-400 font-bold mb-2">Important Notice</h3>
-              <p className="text-gray-300 text-sm leading-relaxed">
-                This analysis is for preliminary assessment only. For accurate repair estimates, 
-                always consult with a professional mechanic or body shop.
-              </p>
-            </div>
-          </div>
-        </motion.div>
 
         {/* Action Buttons */}
         <motion.div
@@ -158,7 +138,7 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
             }`}
           >
             <Camera className="w-5 h-5" />
-            {canPerformAssessment ? 'Start AI Analysis' : 'Insufficient Uploads'}
+            {canPerformAssessment ? 'Start recording with AI analysis' : 'Insufficient Uploads'}
           </motion.button>
           
           <motion.button

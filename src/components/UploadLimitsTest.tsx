@@ -64,7 +64,7 @@ const UploadLimitsTest: React.FC = () => {
               }`}
             >
               <div className="text-sm font-bold mb-1">Normal Scenario</div>
-              <div className="text-xs opacity-80">19 uploads remaining (4 assessments)</div>
+              <div className="text-xs opacity-80">19 uploads remaining (4 inspections)</div>
             </motion.button>
 
             <motion.button
@@ -79,7 +79,7 @@ const UploadLimitsTest: React.FC = () => {
               }`}
             >
               <div className="text-sm font-bold mb-1">Limited Scenario</div>
-              <div className="text-xs opacity-80">2 uploads remaining (0 assessments)</div>
+              <div className="text-xs opacity-80">2 uploads remaining (0 inspections)</div>
             </motion.button>
 
             <motion.button

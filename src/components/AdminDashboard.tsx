@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Shield, FileText, CheckCircle, XCircle, Clock, Edit3, Eye, Download, AlertCircle, Loader, Filter, Search } from 'lucide-react';
+import { ArrowLeft, Shield, FileText, CheckCircle, XCircle, Clock, Edit3, Eye, Download, AlertCircle, Loader, Filter, Search, SortAsc, SortDesc, User } from 'lucide-react';
 import { 
   AdminInspection, 
   AdminInspectionDetails,
@@ -22,6 +22,8 @@ interface AdminDashboardProps {
 
 type ViewMode = 'pending' | 'all';
 type DetailView = 'list' | 'details' | 'report';
+type SortField = 'createdAt' | 'completedAt' | 'registrationNumber' | 'approvalStatus';
+type SortOrder = 'asc' | 'desc';
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const [inspections, setInspections] = useState<AdminInspection[]>([]);
@@ -34,6 +36,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const [rejecting, setRejecting] = useState<number | null>(null);
   const [adminNotes, setAdminNotes] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [sortField, setSortField] = useState<SortField>('createdAt');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [userFilter, setUserFilter] = useState<string>('all');
+
+  // User name mapping
+  const getUserName = (userId: string) => {
+    const userMap: { [key: string]: string } = {
+      'b1739d4a-d071-70d8-9d08-e19234dab677': 'Snap-E-Cabs',
+      '31a31dfa-80b1-700b-5808-7855335d5284': 'adarsh',
+      '91d37dda-70c1-703e-ebce-00384cdd600d': 'rachit',
+      'user-cognito-id': 'John Doe'
+    };
+    
+    return userMap[userId] || userId;
+  };
 
   useEffect(() => {
     loadInspections();
@@ -46,6 +63,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
       const response: AdminInspectionsResponse = viewMode === 'pending' 
         ? await getPendingInspections()
         : await getAllInspections();
+      
       setInspections(response.inspections);
     } catch (err) {
       console.error('Failed to fetch inspections:', err);
@@ -184,9 +202,48 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     }).format(amount);
   };
 
-  const filteredInspections = inspections.filter(inspection =>
-    inspection.registrationNumber.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredInspections = inspections
+    .filter(inspection => {
+      // Search filter (registration number or user name)
+      const matchesSearch = inspection.registrationNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (inspection.userId && getUserName(inspection.userId).toLowerCase().includes(searchTerm.toLowerCase()));
+      
+      // User filter
+      const matchesUser = userFilter === 'all' || 
+        (inspection.userId && getUserName(inspection.userId) === userFilter);
+      
+      return matchesSearch && matchesUser;
+    })
+    .sort((a, b) => {
+      let aValue: any, bValue: any;
+      
+      switch (sortField) {
+        case 'createdAt':
+          aValue = new Date(a.createdAt).getTime();
+          bValue = new Date(b.createdAt).getTime();
+          break;
+        case 'completedAt':
+          aValue = a.completedAt ? new Date(a.completedAt).getTime() : 0;
+          bValue = b.completedAt ? new Date(b.completedAt).getTime() : 0;
+          break;
+        case 'registrationNumber':
+          aValue = a.registrationNumber.toLowerCase();
+          bValue = b.registrationNumber.toLowerCase();
+          break;
+        case 'approvalStatus':
+          aValue = a.approvalStatus.toLowerCase();
+          bValue = b.approvalStatus.toLowerCase();
+          break;
+        default:
+          return 0;
+      }
+      
+      if (sortOrder === 'asc') {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
 
   if (detailView === 'report' && selectedInspection) {
     return (
@@ -520,10 +577,52 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search by registration number..."
+                placeholder="Search by registration or user name..."
                 className="w-full bg-white/10 border border-white/20 rounded-lg md:rounded-xl pl-10 md:pl-10 pr-4 py-2 md:py-3 text-white placeholder-gray-400 focus:border-blue-400 focus:outline-none text-sm md:text-base"
               />
             </div>
+          </div>
+
+          {/* User Filter */}
+          <div className="flex bg-white/10 rounded-lg md:rounded-xl p-1">
+            <select
+              value={userFilter}
+              onChange={(e) => setUserFilter(e.target.value)}
+              className="bg-transparent text-white text-xs md:text-sm px-2 py-1 border-none outline-none"
+            >
+              <option value="all">All Users</option>
+              <option value="Snap-E-Cabs">Snap-E-Cabs</option>
+              <option value="adarsh">adarsh</option>
+              <option value="rachit">rachit</option>
+            </select>
+          </div>
+
+          {/* Sort Controls */}
+          <div className="flex items-center gap-2">
+            <div className="flex bg-white/10 rounded-lg md:rounded-xl p-1">
+              <select
+                value={sortField}
+                onChange={(e) => setSortField(e.target.value as SortField)}
+                className="bg-transparent text-white text-xs md:text-sm px-2 py-1 border-none outline-none"
+              >
+                <option value="createdAt">Created Date</option>
+                <option value="completedAt">Completed Date</option>
+                <option value="registrationNumber">Registration</option>
+                <option value="approvalStatus">Status</option>
+              </select>
+            </div>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+              className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center text-white hover:bg-white/20 transition-all duration-200"
+            >
+              {sortOrder === 'asc' ? (
+                <SortAsc className="w-4 h-4" />
+              ) : (
+                <SortDesc className="w-4 h-4" />
+              )}
+            </motion.button>
           </div>
         </div>
 
@@ -580,7 +679,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                       </div>
                       <div>
                         <h3 className="text-lg md:text-xl font-bold text-white">{inspection.registrationNumber}</h3>
-                        <p className="text-gray-400 text-xs md:text-sm">Inspection #{inspection.id}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-gray-400 text-xs md:text-sm">Inspection #{inspection.id}</p>
+                          <div className="flex items-center gap-1">
+                            <User className="w-3 h-3 text-gray-400" />
+                            <p className="text-gray-400 text-xs md:text-sm">
+                              {inspection.userId ? getUserName(inspection.userId) : 'Unknown User'}
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     </div>
                     <div className={`px-2 md:px-3 py-1 rounded-full border flex items-center gap-2 ${getStatusColor(inspection.approvalStatus)}`}>

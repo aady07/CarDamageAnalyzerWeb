@@ -261,18 +261,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
                         <p className="text-gray-400 text-xs md:text-sm">Inspection #{inspection.id}</p>
                       </div>
                     </div>
-                    <div className="flex flex-col gap-2">
-                      <div className={`px-2 md:px-3 py-1 rounded-full border flex items-center gap-2 ${getStatusColor(inspection.status)}`}>
-                        {getStatusIcon(inspection.status)}
-                        <span className="font-semibold capitalize text-xs md:text-sm">{inspection.status}</span>
-                      </div>
-                      {inspection.approvalStatus && (
-                        <div className={`px-2 md:px-3 py-1 rounded-full border flex items-center gap-2 ${getApprovalStatusColor(inspection.approvalStatus)}`}>
-                          {getApprovalStatusIcon(inspection.approvalStatus)}
-                          <span className="font-semibold text-xs">{inspection.approvalStatus}</span>
-                        </div>
-                      )}
-                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 mb-4 md:mb-6">
@@ -294,15 +282,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
                       </div>
                     )}
 
-                    {inspection.totalDamagePercentage !== null && (
-                      <div className="flex items-center gap-2 md:gap-3">
-                        <Percent className="w-4 h-4 md:w-5 md:h-5 text-gray-400" />
-                        <div>
-                          <p className="text-gray-400 text-xs md:text-sm">Damage</p>
-                          <p className="text-white font-semibold text-sm md:text-base">{inspection.totalDamagePercentage}%</p>
-                        </div>
-                      </div>
-                    )}
 
                   </div>
 
@@ -333,37 +312,24 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
 
                   {/* Approval Status Messages */}
                   {inspection.approvalStatus === 'PENDING' && (
-                    <div className="w-full bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 px-3 md:px-4 py-2 md:py-3 rounded-lg md:rounded-xl text-center">
+                    <div className="w-full bg-blue-500/20 border border-blue-500/30 text-blue-400 px-3 md:px-4 py-2 md:py-3 rounded-lg md:rounded-xl text-center">
                       <div className="flex items-center justify-center gap-2">
-                        <Clock className="w-4 h-4 md:w-5 md:h-5" />
-                        <span className="font-semibold text-sm md:text-base">PDF Ready - Pending Admin Approval</span>
+                        <Loader className="w-4 h-4 md:w-5 md:h-5 animate-spin" />
+                        <span className="font-semibold text-sm md:text-base">AI Assessment in Progress. Will be ready soon.</span>
                       </div>
-                      <p className="text-xs md:text-sm mt-1">Your inspection report is ready but awaiting admin approval.</p>
                     </div>
                   )}
 
-                  {inspection.approvalStatus === 'REJECTED' && (
-                    <div className="w-full bg-red-500/20 border border-red-500/30 text-red-400 px-3 md:px-4 py-2 md:py-3 rounded-lg md:rounded-xl text-center">
+                  {inspection.approvalStatus === 'APPROVED' && (
+                    <div className="w-full bg-green-500/20 border border-green-500/30 text-green-400 px-3 md:px-4 py-2 md:py-3 rounded-lg md:rounded-xl text-center">
                       <div className="flex items-center justify-center gap-2">
-                        <AlertCircle className="w-4 h-4 md:w-5 md:h-5" />
-                        <span className="font-semibold text-sm md:text-base">Inspection Rejected</span>
+                        <CheckCircle className="w-4 h-4 md:w-5 md:h-5" />
+                        <span className="font-semibold text-sm md:text-base">Upload-completed</span>
                       </div>
-                      <p className="text-xs md:text-sm mt-1">
-                        {inspection.adminNotes || 'Your inspection was rejected by admin. Please contact support for more information.'}
-                      </p>
-                    </div>
-                  )}
-
-                  {inspection.status === 'completed' && !inspection.approvalStatus && (
-                    <div className="w-full bg-gray-500/20 border border-gray-500/30 text-gray-400 font-semibold py-2 md:py-3 px-3 md:px-6 rounded-lg md:rounded-xl text-center text-sm md:text-base">
-                      PDF Report Not Available
-                    </div>
-                  )}
-
-                  {inspection.status === 'processing' && (
-                    <div className="w-full bg-blue-500/20 border border-blue-500/30 text-blue-400 font-semibold py-2 md:py-3 px-3 md:px-6 rounded-lg md:rounded-xl text-center flex items-center justify-center gap-2 md:gap-3 text-sm md:text-base">
-                      <Loader className="w-4 h-4 md:w-5 md:h-5 animate-spin" />
-                      Report is being generated...
+                      <div className="flex items-center justify-center gap-2 mt-1">
+                        <CheckCircle className="w-4 h-4 md:w-5 md:h-5" />
+                        <span className="font-semibold text-sm md:text-base">AI damage assessment- completed</span>
+                      </div>
                     </div>
                   )}
                 </motion.div>

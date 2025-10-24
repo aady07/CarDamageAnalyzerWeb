@@ -39,7 +39,7 @@ const CAPTURE_PHASES: CaptureData[] = [
   { 
     phase: 'left', 
     label: 'LEFT SIDE', 
-    instruction: 'Move to the right of the car',
+    instruction: 'Move to the left of the car',
     timing: 20, // 15 seconds after first capture (5s + 10s movement + 5s hold)
     color: '#8B5CF6',
     icon: <ArrowRight className="w-6 h-6 -rotate-90" />
@@ -55,7 +55,7 @@ const CAPTURE_PHASES: CaptureData[] = [
   { 
     phase: 'right', 
     label: 'RIGHT SIDE', 
-    instruction: 'Move to the left',
+    instruction: 'Move to the right of the car',
     timing: 60, // 20 seconds after third capture (40s + 15s movement + 5s hold)
     color: '#00FF88',
     icon: <ArrowRight className="w-6 h-6 rotate-90" />
@@ -232,7 +232,9 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       recordedChunksRef.current = [];
 
       const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'video/webm;codecs=vp9'
+        mimeType: MediaRecorder.isTypeSupported('video/mp4;codecs=h264') 
+          ? 'video/mp4;codecs=h264' 
+          : 'video/webm;codecs=vp9'
       });
 
       mediaRecorderRef.current = mediaRecorder;
@@ -258,7 +260,10 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       }
 
       mediaRecorderRef.current.onstop = () => {
-        const videoBlob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+        const mimeType = MediaRecorder.isTypeSupported('video/mp4;codecs=h264') 
+          ? 'video/mp4' 
+          : 'video/webm';
+        const videoBlob = new Blob(recordedChunksRef.current, { type: mimeType });
         console.log('Video recording stopped, blob size:', videoBlob.size);
         resolve(videoBlob);
       };
@@ -327,7 +332,27 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
             const captureTimer = setTimeout(() => {
               captureImage(phase.phase, phase.timing);
               setCurrentPhase(index);
-              setCurrentInstruction(`${phase.label} captured!`);
+              
+              // Set proper capture message based on phase
+              let captureMessage = '';
+              switch (phase.phase) {
+                case 'front':
+                  captureMessage = 'Front captured!';
+                  break;
+                case 'left':
+                  captureMessage = 'Left captured!';
+                  break;
+                case 'back':
+                  captureMessage = 'Back captured!';
+                  break;
+                case 'right':
+                  captureMessage = 'Right captured!';
+                  break;
+                default:
+                  captureMessage = `${phase.label} captured!`;
+              }
+              
+              setCurrentInstruction(captureMessage);
               setIsHoldSteady(false);
               
               // Clear instruction after 2 seconds
@@ -385,8 +410,9 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       // Upload video to S3 using video upload service
       let videoUrl = '';
       if (videoBlob) {
-        const videoFileName = `inspection_video-${Date.now()}.webm`;
-        const videoContentType = 'video/webm';
+        const isMp4Supported = MediaRecorder.isTypeSupported('video/mp4;codecs=h264');
+        const videoFileName = `inspection_video-${Date.now()}.${isMp4Supported ? 'mp4' : 'webm'}`;
+        const videoContentType = isMp4Supported ? 'video/mp4' : 'video/webm';
         
         console.log('🎥 Calling VIDEO upload endpoint with:', { videoFileName, videoContentType });
         
@@ -851,8 +877,8 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
               />
             </svg>
             <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-white font-bold text-lg">{Math.round((recordingTime / 30) * 100)}%</span>
-          </div>
+              {/* Percentage text removed - just the circular bar */}
+            </div>
         </div>
       </div>
       )}

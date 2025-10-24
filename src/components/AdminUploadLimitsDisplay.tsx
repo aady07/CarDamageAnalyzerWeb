@@ -3,11 +3,11 @@ import { motion } from 'framer-motion';
 import { AlertTriangle, CheckCircle, Info, Crown } from 'lucide-react';
 import { useUploadLimitsContext } from '../contexts/UploadLimitsContext';
 
-interface UploadLimitsDisplayProps {
+interface AdminUploadLimitsDisplayProps {
   className?: string;
 }
 
-const UploadLimitsDisplay: React.FC<UploadLimitsDisplayProps> = ({ className = '' }) => {
+const AdminUploadLimitsDisplay: React.FC<AdminUploadLimitsDisplayProps> = ({ className = '' }) => {
   const { limitInfo, loading, error, remainingAssessments, canPerformAssessment } = useUploadLimitsContext();
 
   if (loading) {
@@ -109,4 +109,4 @@ const UploadLimitsDisplay: React.FC<UploadLimitsDisplayProps> = ({ className = '
   );
 };
 
-export default UploadLimitsDisplay;
+export default AdminUploadLimitsDisplay;
