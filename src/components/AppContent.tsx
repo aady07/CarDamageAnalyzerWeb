@@ -83,7 +83,7 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
     <div className="min-h-screen gradient-bg overflow-hidden">
       {/* Navbar (hidden on camera screen to maximize space) */}
       {currentScreen !== 'camera' && (
-        <nav className="px-4 md:px-8 py-2 md:py-3">
+        <nav className="px-4 md:px-8 py-1 md:py-3">
           <div className="flex items-center justify-between">
             {/* Logo - Left Side */}
             <img 
