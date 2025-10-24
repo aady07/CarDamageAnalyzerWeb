@@ -292,7 +292,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
           if (index === 0) {
             // First phase: Just hold steady
             const holdTimer = setTimeout(() => {
-              setCurrentInstruction('Hold steady for 2 seconds');
+              setCurrentInstruction('Hold steady');
               setIsHoldSteady(true);
               setShowMovementAnimation(false);
             }, Math.max(0, phase.timing - 2) * 1000);
@@ -313,13 +313,13 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
           } else {
             // Subsequent phases: Move → Hold → Capture
             const moveTimer = setTimeout(() => {
-              setCurrentInstruction(`${phase.instruction} for 10 seconds`);
+              setCurrentInstruction(`${phase.instruction} `);
               setShowMovementAnimation(true);
               setIsHoldSteady(false);
             }, Math.max(0, phase.timing - 12) * 1000);
 
             const holdTimer = setTimeout(() => {
-              setCurrentInstruction('Hold steady for 2 seconds');
+              setCurrentInstruction('Hold steady');
               setIsHoldSteady(true);
               setShowMovementAnimation(false);
             }, Math.max(0, phase.timing - 2) * 1000);
