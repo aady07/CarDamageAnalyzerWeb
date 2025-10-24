@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, FileText, Download, Calendar, DollarSign, Percent, Car, Clock, CheckCircle, AlertCircle, Loader } from 'lucide-react';
+import { ArrowLeft, FileText, Download, Calendar, DollarSign, Percent, Car, Clock, CheckCircle, AlertCircle, Loader, TrendingUp } from 'lucide-react';
 import { getUserInspections, downloadInspectionPDF, checkPDFAvailability, CarInspection } from '../services/api/inspectionService';
 
 interface DashboardProps {
@@ -304,15 +304,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
                       </div>
                     )}
 
-                    {inspection.estimatedCost !== null && (
-                      <div className="flex items-center gap-2 md:gap-3">
-                        <DollarSign className="w-4 h-4 md:w-5 md:h-5 text-gray-400" />
-                        <div>
-                          <p className="text-gray-400 text-xs md:text-sm">Estimated Cost</p>
-                          <p className="text-white font-semibold text-sm md:text-base">{formatCurrency(inspection.estimatedCost)}</p>
-                        </div>
-                      </div>
-                    )}
                   </div>
 
                   {/* PDF Download Button */}

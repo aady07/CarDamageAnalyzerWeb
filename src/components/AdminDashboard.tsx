@@ -286,18 +286,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                     <span className="text-white font-semibold text-sm md:text-base">{formatDate(selectedInspection.completedAt)}</span>
                   </div>
                 )}
-                {selectedInspection.totalDamagePercentage !== null && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400 text-sm md:text-base">Damage:</span>
-                    <span className="text-white font-semibold text-sm md:text-base">{selectedInspection.totalDamagePercentage}%</span>
-                  </div>
-                )}
-                {selectedInspection.estimatedCost !== null && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400 text-sm md:text-base">Cost:</span>
-                    <span className="text-white font-semibold text-sm md:text-base">{formatCurrency(selectedInspection.estimatedCost)}</span>
-                  </div>
-                )}
               </div>
             </motion.div>
 
