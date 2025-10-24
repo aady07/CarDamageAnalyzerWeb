@@ -1,6 +1,5 @@
 import { apiClient } from './authenticatedApiService';
 
-console.log('🎥 VIDEO UPLOAD SERVICE: Module loaded successfully');
 
 export interface VideoPresignedUrlResponse {
   presignedUrl: string;
@@ -17,9 +16,6 @@ export async function getVideoPresignedUploadUrl(params: {
   fileName: string;
   contentType: string;
 }): Promise<VideoPresignedUrlResponse> {
-  console.log('🎥 VIDEO UPLOAD SERVICE: Getting presigned URL for video');
-  console.log('🎥 VIDEO UPLOAD SERVICE: Endpoint: /api/get-video-upload-url');
-  console.log('🎥 VIDEO UPLOAD SERVICE: Params:', params);
   
   const form = new URLSearchParams();
   form.set('fileName', params.fileName);
@@ -32,8 +28,6 @@ export async function getVideoPresignedUploadUrl(params: {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     }
   );
-  
-  console.log('🎥 VIDEO UPLOAD SERVICE: Response received:', data);
   return data;
 }
 

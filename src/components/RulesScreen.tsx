@@ -227,9 +227,7 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
                       try {
                         localStorage.removeItem('claimsByPosition');
                         localStorage.removeItem('recentClaimIds');
-                        console.log('Cleared previous assessment data from localStorage');
                       } catch (error) {
-                        console.warn('Failed to clear localStorage:', error);
                       }
                       onStart({ make: vehicleMake, model: vehicleModel, regNumber: vehicleRegNumber });
                     }

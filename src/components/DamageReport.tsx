@@ -69,7 +69,6 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
 
 
   const log = useCallback((line: string) => {
-    console.log(`[DAMAGE-REPORT] ${line}`);
   }, []);
 
   // Fetch processed images and results for recent claims
@@ -212,7 +211,6 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
           url: window.location.href,
         });
       } catch (error) {
-        console.log('Error sharing:', error);
       }
     } else {
       // Fallback for browsers that don't support Web Share API
@@ -236,7 +234,6 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
           vehicleModel = parsed.model || vehicleModel;
         }
       } catch (e) {
-        console.warn('Could not parse vehicle details:', e);
       }
       
       await generateAndDownloadReport({
@@ -249,7 +246,6 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
         photoUrls: imageUrls,
       });
     } catch (e) {
-      console.error('Failed to generate PDF', e);
       alert('Failed to generate PDF');
     }
   };

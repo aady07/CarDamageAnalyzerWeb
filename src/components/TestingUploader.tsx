@@ -36,7 +36,6 @@ const TestingUploader: React.FC<TestingUploaderProps> = ({ onBack, onComplete })
 
   const log = useCallback((line: string) => {
     setLogLines((prev) => [...prev, line]);
-    console.log(`[TEST-UPLOAD] ${line}`);
   }, []);
 
   const toBlob = async (url: string): Promise<Blob> => {

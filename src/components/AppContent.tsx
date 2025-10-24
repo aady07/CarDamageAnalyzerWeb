@@ -52,7 +52,6 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
           setIsAdmin(response.isAdmin);
         })
         .catch(error => {
-          console.error('Failed to check admin status:', error);
           setIsAdmin(false);
         });
     } else {
@@ -72,7 +71,6 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
     
     // Protect admin screen with admin check
     if (screen === 'admin' && isAdmin !== true) {
-      console.warn('Admin access required');
       return;
     }
     

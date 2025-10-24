@@ -47,7 +47,6 @@ export function useUploadLimits() {
         canPerformAssessment: canPerform,
       });
     } catch (error) {
-      console.error('Failed to fetch limit info:', error);
       setState(prev => ({
         ...prev,
         loading: false,

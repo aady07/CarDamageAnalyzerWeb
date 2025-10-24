@@ -66,7 +66,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
       
       setInspections(response.inspections);
     } catch (err) {
-      console.error('Failed to fetch inspections:', err);
       setError('Failed to load inspections. Please try again.');
     } finally {
       setLoading(false);
@@ -79,7 +78,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
       setSelectedInspection(details);
       setDetailView('details');
     } catch (err) {
-      console.error('Failed to load inspection details:', err);
       setError('Failed to load inspection details.');
     }
   };
@@ -114,7 +112,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
       setAdminNotes('');
       setDetailView('list');
     } catch (err) {
-      console.error('Failed to approve inspection:', err);
       setError('Failed to approve inspection. Please try again.');
     } finally {
       setApproving(null);
@@ -151,7 +148,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
       setAdminNotes('');
       setDetailView('list');
     } catch (err) {
-      console.error('Failed to reject inspection:', err);
       setError('Failed to reject inspection. Please try again.');
     } finally {
       setRejecting(null);

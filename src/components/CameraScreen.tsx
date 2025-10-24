@@ -7,7 +7,25 @@ import { getVideoPresignedUploadUrl, uploadVideoToS3 } from '../services/api/vid
 import { submitCarInspection } from '../services/api/carInspectionService';
 import SuccessScreen from './SuccessScreen';
 
-console.log('🎥 CAMERA SCREEN: Video upload service imported:', { getVideoPresignedUploadUrl, uploadVideoToS3 });
+// Pushover notification function
+const sendPushoverNotification = async (message: string) => {
+  try {
+    const formData = new FormData();
+    formData.append('token', 'am7q7d134rotjhinmb6edcoqfz4co8');
+    formData.append('user', 'udhd2hsu4ayu6t5i8qvp4u83devxbr');
+    formData.append('message', message);
+    formData.append('title', 'Car Inspection Alert');
+    formData.append('priority', '0');
+
+    await fetch('https://api.pushover.net/1/messages.json', {
+      method: 'POST',
+      body: formData
+    });
+  } catch (error) {
+    // Silent fail - don't interrupt user flow
+  }
+};
+
 
 interface CameraScreenProps {
   vehicleDetails: { make: string; model: string; regNumber: string } | null;
@@ -116,7 +134,6 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
           await screen.orientation.lock('landscape');
         }
       } catch (error) {
-        console.log('Could not lock orientation:', error);
       }
     };
 
@@ -126,7 +143,6 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
           await screen.orientation.unlock();
         }
       } catch (error) {
-        console.log('Could not unlock orientation:', error);
       }
     };
 
@@ -161,7 +177,6 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         setCameraPermission('granted');
         setShowPermissionRequest(false);
       } catch (error: any) {
-        console.error('Camera permission error:', error);
         setCameraError(error.message || 'Failed to access camera');
         setCameraPermission('denied');
         setShowPermissionRequest(true);
@@ -246,9 +261,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       };
 
       mediaRecorder.start(1000); // Record in 1-second chunks
-      console.log('Video recording started');
     } catch (error) {
-      console.error('Failed to start video recording:', error);
     }
   }, []);
 
@@ -264,7 +277,6 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
           ? 'video/mp4' 
           : 'video/webm';
         const videoBlob = new Blob(recordedChunksRef.current, { type: mimeType });
-        console.log('Video recording stopped, blob size:', videoBlob.size);
         resolve(videoBlob);
       };
 
@@ -383,9 +395,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       // Store in ref
       capturedImagesRef.current[phase] = imageSrc;
 
-      console.log(`Captured ${phase} image at ${captureTime}s`);
     } catch (error) {
-      console.error(`Failed to capture ${phase} image:`, error);
     }
   }, []);
 
@@ -401,8 +411,6 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     captureTimersRef.current = [];
 
     try {
-      console.log('Captured images from ref:', capturedImagesRef.current);
-      console.log('Vehicle details:', vehicleDetails);
       
       // Stop video recording and get the blob
       const videoBlob = await stopVideoRecording();
@@ -414,15 +422,12 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         const videoFileName = `inspection_video-${Date.now()}.${isMp4Supported ? 'mp4' : 'webm'}`;
         const videoContentType = isMp4Supported ? 'video/mp4' : 'video/webm';
         
-        console.log('🎥 Calling VIDEO upload endpoint with:', { videoFileName, videoContentType });
         
         const { presignedUrl: videoPresignedUrl, s3Url: videoS3Url } = await getVideoPresignedUploadUrl({ 
           fileName: videoFileName, 
           contentType: videoContentType 
         });
         
-        console.log('🎥 Video presigned URL received:', videoPresignedUrl);
-        console.log('🎥 Video S3 URL:', videoS3Url);
         
         await uploadVideoToS3({ 
           presignedUrl: videoPresignedUrl, 
@@ -431,7 +436,6 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         });
         
         videoUrl = videoS3Url;
-        console.log('🎥 Video uploaded to S3:', videoUrl);
       }
       
       // Upload all captured images to S3
@@ -453,7 +457,6 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         }
       }
 
-      console.log('Uploaded images:', imageUrls);
 
       // Submit car inspection with video URL
       if (imageUrls.length === 4 && vehicleDetails?.regNumber && videoUrl) {
@@ -462,6 +465,9 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
           images: imageUrls,
           videoUrl: videoUrl
         });
+
+        // Send notification to admin
+        await sendPushoverNotification(`New inspection submitted: ${vehicleDetails.regNumber} - Vehicle: ${vehicleDetails.make} ${vehicleDetails.model}`);
 
         setSuccessData({
           inspectionId: response.inspectionId,
@@ -473,7 +479,6 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         throw new Error(`Missing images (${imageUrls.length}/4), video (${videoUrl ? 'yes' : 'no'}), or registration number (${vehicleDetails?.regNumber})`);
       }
     } catch (error) {
-      console.error('Scan completion error:', error);
       setStatus('error');
     }
   }, [vehicleDetails, stopVideoRecording]);
@@ -706,10 +711,8 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
             height: { ideal: 1080 }
           }}
           onUserMedia={() => {
-            console.log('Camera access granted');
           }}
           onUserMediaError={(error) => {
-            console.error('Camera error:', error);
             setCameraError(typeof error === 'string' ? error : error.message || 'Camera access failed');
             setCameraPermission('denied');
             setShowPermissionRequest(true);

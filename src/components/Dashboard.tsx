@@ -24,7 +24,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
       const response = await getUserInspections();
       setInspections(response.inspections);
     } catch (err) {
-      console.error('Failed to fetch inspections:', err);
       setError('Failed to load inspections. Please try again.');
     } finally {
       setLoading(false);
@@ -34,8 +33,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
   const handleDownloadPDF = async (inspection: CarInspection) => {
     try {
       setDownloadingPdf(inspection.id);
-      
-      console.log('📄 Checking PDF availability for:', inspection.registrationNumber);
       
       // First check if PDF is available for download
       const availabilityResponse = await checkPDFAvailability(inspection.registrationNumber);
@@ -55,8 +52,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
       // PDF is available, proceed with download
       const filename = availabilityResponse.filename || `inspection_${inspection.registrationNumber}.pdf`;
       
-      console.log('📄 PDF is available, downloading:', filename);
-      
       // Download PDF blob using filename
       const pdfBlob = await downloadInspectionPDF(filename);
       
@@ -71,7 +66,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
       window.URL.revokeObjectURL(url);
       
     } catch (err) {
-      console.error('Failed to download PDF:', err);
       alert('Failed to download PDF. Please try again.');
     } finally {
       setDownloadingPdf(null);

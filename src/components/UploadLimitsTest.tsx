@@ -15,20 +15,13 @@ const UploadLimitsTest: React.FC = () => {
     // Simulate API call
     try {
       const mockData = await getMockLimitInfo(scenario);
-      console.log('Mock API Response:', mockData);
       
       // Calculate expected values
       const remainingAssessments = Math.floor(mockData.stats.remainingUploads / 4);
       const canPerform = mockData.stats.remainingUploads >= 4;
       
-      console.log('Calculated Values:', {
-        remainingAssessments,
-        canPerform,
-        remainingUploads: mockData.stats.remainingUploads
-      });
       
     } catch (error) {
-      console.error('Test failed:', error);
     } finally {
       setIsLoading(false);
     }

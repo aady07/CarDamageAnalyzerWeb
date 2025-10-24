@@ -33,12 +33,9 @@ const ReportManager: React.FC<ReportManagerProps> = ({ inspectionId, registratio
     try {
       setLoading(true);
       setError('');
-      console.log('📄 Loading report formats for inspection:', inspectionId);
       const data = await getReportFormats(inspectionId);
-      console.log('📄 Report formats loaded:', data);
       setFormats(data);
     } catch (err) {
-      console.error('Failed to load report formats:', err);
       setError('Failed to load report formats. Please try again.');
     } finally {
       setLoading(false);
@@ -63,7 +60,6 @@ const ReportManager: React.FC<ReportManagerProps> = ({ inspectionId, registratio
       window.URL.revokeObjectURL(url);
       
     } catch (err) {
-      console.error('Failed to download report:', err);
       setError('Failed to download report. Please try again.');
     } finally {
       setDownloading(null);
@@ -114,7 +110,6 @@ const ReportManager: React.FC<ReportManagerProps> = ({ inspectionId, registratio
       onUpload();
       
     } catch (err) {
-      console.error('Failed to upload report:', err);
       setError('Failed to upload report. Please try again.');
     } finally {
       setUploading(false);
