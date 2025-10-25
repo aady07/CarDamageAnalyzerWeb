@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getLimitInfo, LimitInfoResponse, getRemainingAssessments, canPerformAssessment } from '../services/api/limitService';
 import { cognitoService } from '../services/cognitoService';
+import { useCognitoAuth } from './useCognitoAuth';
 
 export interface UploadLimitsState {
   limitInfo: LimitInfoResponse | null;
@@ -11,6 +12,7 @@ export interface UploadLimitsState {
 }
 
 export function useUploadLimits() {
+  const { user } = useCognitoAuth();
   const [state, setState] = useState<UploadLimitsState>({
     limitInfo: null,
     loading: true,
@@ -56,8 +58,29 @@ export function useUploadLimits() {
   }, []);
 
   useEffect(() => {
+    // Clear state when user logs out
+    if (!user) {
+      setState({
+        limitInfo: null,
+        loading: false,
+        error: null,
+        remainingAssessments: 0,
+        canPerformAssessment: false,
+      });
+      return;
+    }
+    
+    // Fetch limits when user logs in or changes
     fetchLimitInfo();
-  }, [fetchLimitInfo]);
+  }, [fetchLimitInfo, user]);
+
+  // Additional effect to handle authentication state changes more explicitly
+  useEffect(() => {
+    if (user) {
+      // Force refresh when user changes (different user logs in)
+      fetchLimitInfo();
+    }
+  }, [user?.getUsername?.(), fetchLimitInfo]);
 
   return {
     ...state,

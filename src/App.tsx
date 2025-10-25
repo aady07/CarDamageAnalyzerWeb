@@ -33,7 +33,7 @@ function App() {
   };
 
   return (
-    <UploadLimitsProvider>
+    <UploadLimitsProvider key={isAuthed ? 'authenticated' : 'unauthenticated'}>
       <AppContent 
         isAuthed={isAuthed}
         needsAuth={needsAuth}
