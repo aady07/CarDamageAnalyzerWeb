@@ -127,19 +127,31 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
           className="space-y-3"
         >
           <motion.button
-            whileHover={{ scale: canPerformAssessment ? 1.02 : 1 }}
-            whileTap={{ scale: canPerformAssessment ? 0.98 : 1 }}
-            onClick={() => canPerformAssessment && setShowVehicleForm(true)}
-            disabled={!canPerformAssessment}
-            className={`w-full font-bold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 ${
-              canPerformAssessment 
-                ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white' 
-                : 'bg-gray-600/50 text-gray-400 cursor-not-allowed'
-            }`}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => setShowVehicleForm(true)}
+            className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 hover:from-blue-600 hover:to-purple-700"
           >
             <Camera className="w-5 h-5" />
-            {canPerformAssessment ? 'Start recording with AI analysis' : 'Insufficient Uploads'}
+            Start recording with AI analysis
           </motion.button>
+          
+          {/* Warning if limits exceeded, but still allow proceeding */}
+          {!canPerformAssessment && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-3 bg-yellow-500/20 border border-yellow-500/50 rounded-xl p-3 flex items-start gap-2"
+            >
+              <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+              <div className="text-xs text-yellow-300">
+                <p className="font-semibold mb-1">⚠️ Upload Limit Exceeded</p>
+                <p className="text-yellow-200/80">
+                  You can still proceed, but uploads may be restricted. Testing mode available if backend is down.
+                </p>
+              </div>
+            </motion.div>
+          )}
           
           <motion.button
             whileHover={{ scale: 1.02 }}

@@ -28,7 +28,7 @@ export async function getVideoPresignedUploadUrl(params: {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     }
   );
-  return data;
+  return data;//value of the darta stored is traversed through the main set.
 }
 
 export async function uploadVideoToS3(args: {

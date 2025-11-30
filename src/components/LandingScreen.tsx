@@ -1,13 +1,31 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Car, Camera, ArrowRight, ArrowDown, ArrowLeft, ArrowUp } from 'lucide-react';
+import { Car, Camera, ArrowRight, ArrowDown, ArrowLeft, ArrowUp, TestTube, AlertTriangle } from 'lucide-react';
 import UploadLimitsDisplay from './UploadLimitsDisplay';
 
 interface LandingScreenProps {
   onStartAnalysis: () => void;
 }
 
+const TESTING_MODE_KEY = 'camera_testing_bypass_enabled';
+
 const LandingScreen: React.FC<LandingScreenProps> = ({ onStartAnalysis }) => {
+  const [testingMode, setTestingMode] = useState<boolean>(false);
+
+  // Load testing mode from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem(TESTING_MODE_KEY);
+    if (saved === 'true') {
+      setTestingMode(true);
+    }
+  }, []);
+
+  // Save testing mode to localStorage
+  const toggleTestingMode = () => {
+    const newValue = !testingMode;
+    setTestingMode(newValue);
+    localStorage.setItem(TESTING_MODE_KEY, String(newValue));
+  };
   const steps = [
     {
       icon: Car,
@@ -121,6 +139,47 @@ const LandingScreen: React.FC<LandingScreenProps> = ({ onStartAnalysis }) => {
         >
           <UploadLimitsDisplay />
         </motion.div>
+
+        {/* Testing Mode Toggle */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.75 }}
+          className="w-full max-w-sm md:max-w-md mb-3"
+        >
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={toggleTestingMode}
+            className={`w-full font-semibold py-2.5 px-4 rounded-xl md:rounded-2xl transition-all duration-200 flex items-center justify-center gap-2 text-sm md:text-base border-2 ${
+              testingMode
+                ? 'bg-orange-500/20 border-orange-500 text-orange-400 hover:bg-orange-500/30'
+                : 'bg-white/5 border-white/20 text-white/70 hover:bg-white/10'
+            }`}
+          >
+            <TestTube className="w-4 h-4 md:w-5 md:h-5" />
+            <span>{testingMode ? 'Testing Mode: ON' : 'Testing Mode: OFF'}</span>
+          </motion.button>
+        </motion.div>
+
+        {/* Testing Mode Warning */}
+        {testingMode && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-sm md:max-w-md mb-4"
+          >
+            <div className="bg-orange-500/20 border-2 border-orange-500/50 rounded-xl p-3 flex items-start gap-2">
+              <AlertTriangle className="w-5 h-5 text-orange-400 flex-shrink-0 mt-0.5" />
+              <div className="text-xs text-orange-300">
+                <p className="font-semibold mb-1">⚠️ Testing Mode Active</p>
+                <p className="text-orange-200/80">
+                  Camera screen will be bypassed. Limits will still be checked. Turn OFF before mobile testing.
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         {/* Start Button */}
         <motion.div
