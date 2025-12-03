@@ -952,6 +952,9 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     captureTimersRef.current.forEach(timer => clearTimeout(timer));
     captureTimersRef.current = [];
 
+    // Minimum images required for API submission
+    const MINIMUM_IMAGES_REQUIRED = 4;
+
     // Check if testing mode is enabled
     const isTestingMode = localStorage.getItem(TESTING_MODE_KEY) === 'true';
 
@@ -974,37 +977,9 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         return;
       }
       
-      // Stop video recording and get the blob
-      const videoBlob = await stopVideoRecording();
-      console.log('[Video] Video recording stopped, blob size:', videoBlob ? `${(videoBlob.size / 1024 / 1024).toFixed(2)} MB` : 'null');
-      
-      // Upload video to S3 using video upload service
-      let videoUrl = '';
-      if (videoBlob) {
-        const isMp4Supported = MediaRecorder.isTypeSupported('video/mp4;codecs=h264');
-        const videoFileName = `inspection_video-${Date.now()}.${isMp4Supported ? 'mp4' : 'webm'}`;
-        const videoContentType = isMp4Supported ? 'video/mp4' : 'video/webm';
-        
-        console.log('[Video] Uploading video to S3...');
-        console.log(`[Video] File name: ${videoFileName}`);
-        console.log(`[Video] Content type: ${videoContentType}`);
-        
-        const { presignedUrl: videoPresignedUrl, s3Url: videoS3Url } = await getVideoPresignedUploadUrl({ 
-          fileName: videoFileName, 
-          contentType: videoContentType 
-        });
-        
-        await uploadVideoToS3({ 
-          presignedUrl: videoPresignedUrl, 
-          file: videoBlob, 
-          contentType: videoContentType 
-        });
-        
-        videoUrl = videoS3Url;
-        console.log('[Video] Video uploaded successfully:', videoUrl);
-      } else {
-        console.warn('[Video] No video blob available');
-      }
+      // Video recording disabled - set videoUrl to null
+      const videoUrl = null;
+      console.log('[Video] Video recording disabled - sending null video URL');
       
       // Gather persisted image references in capture order
       const imageUrls: { type: CaptureSegmentId; imageUrl: string }[] = CAPTURE_SEGMENTS.map((segment) => {
@@ -1027,8 +1002,8 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         uri: ref.uri
       })));
 
-      // Submit car inspection with video URL
-      if (imageUrls.length === CAPTURE_SEGMENTS.length && vehicleDetails?.regNumber && videoUrl) {
+      // Submit car inspection with video URL (minimum 4 images required, video can be null)
+      if (imageUrls.length >= MINIMUM_IMAGES_REQUIRED && vehicleDetails?.regNumber) {
         const requestPayload = {
           registrationNumber: vehicleDetails.regNumber,
           images: imageUrls,
@@ -1069,10 +1044,10 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         setShowSuccess(true);
     } else {
         console.error('[API] Validation failed:');
-        console.error(`[API] Images: ${imageUrls.length}/${CAPTURE_SEGMENTS.length}`);
-        console.error(`[API] Video: ${videoUrl ? 'yes' : 'no'}`);
+        console.error(`[API] Images: ${imageUrls.length} (minimum required: ${MINIMUM_IMAGES_REQUIRED})`);
+        console.error(`[API] Video: null (disabled)`);
         console.error(`[API] Registration: ${vehicleDetails?.regNumber || 'missing'}`);
-        throw new Error(`Missing images (${imageUrls.length}/${CAPTURE_SEGMENTS.length}), video (${videoUrl ? 'yes' : 'no'}), or registration number (${vehicleDetails?.regNumber})`);
+        throw new Error(`Missing images (${imageUrls.length}/${MINIMUM_IMAGES_REQUIRED} minimum), or registration number (${vehicleDetails?.regNumber})`);
       }
     } catch (error) {
       setStatus('error');
@@ -1189,8 +1164,9 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     previousStencilIndexRef.current = -1; // Reset to trigger new stencil detection
     setCurrentInstruction('Position the front of the car in the frame'); // Initial instruction
 
-    await startVideoRecording();
-    console.log('[StartScan] Video recording started');
+    // Video recording disabled - only capturing images
+    // await startVideoRecording();
+    console.log('[StartScan] Image capture mode - video recording disabled');
     console.log('[StartScan] Edge detection analysis will start automatically');
 
     recordingIntervalRef.current = setInterval(() => {
@@ -1202,7 +1178,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     
     // Note: Image capture is now triggered when each stencil turns green
     // No need to schedule segment runs - stencil verification handles it
-    console.log('[StartScan] Video recording started, waiting for stencil verifications...');
+    console.log('[StartScan] Waiting for stencil verifications...');
   }, [startVideoRecording, scheduleSegmentRun]);
 
   const resetScan = useCallback(() => {
