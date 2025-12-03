@@ -111,6 +111,20 @@ const CAPTURE_SEGMENTS: CaptureSegment[] = [
 
 const TOTAL_CAPTURE_DURATION = CAPTURE_SEGMENTS[CAPTURE_SEGMENTS.length - 1].timing + 5;
 
+// Stencil images mapping - Flow: Front → Right side → Rear → Left side
+const STENCIL_IMAGES = [
+  { id: 'front', path: '/Front.png', label: 'Front View' },
+  { id: 'right_front_fender', path: '/Right_front_fender.png', label: 'Right Front Fender' },
+  { id: 'right_front_door', path: '/Right_front_door.png', label: 'Right Front Door' },
+  { id: 'right_rear_door', path: '/Right_rear_door.png', label: 'Right Rear Door' },
+  { id: 'right_rear_fender', path: '/Right_rear_fender.png', label: 'Right Rear Fender' },
+  { id: 'rear', path: '/Rear.png', label: 'Rear View' },
+  { id: 'left_rear_fender', path: '/Left_rear_fender.png', label: 'Left Rear Fender' },
+  { id: 'left_rear_door', path: '/Left_rear_door.png', label: 'Left Rear Door' },
+  { id: 'left_front_door', path: '/Left_front_door.png', label: 'Left Front Door' },
+  { id: 'left_front_fender', path: '/Left_front_fender.png', label: 'Left Front Fender' }
+];
+
 const getInitialSegmentStatuses = (): Record<CaptureSegmentId, SegmentStatus> => {
   const statuses = {} as Record<CaptureSegmentId, SegmentStatus>;
   CAPTURE_SEGMENTS.forEach((segment, index) => {
@@ -154,23 +168,18 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
   const [alignmentScore, setAlignmentScore] = useState(0);
   const isAnalyzingRef = useRef<boolean>(false); // Use ref instead of state to avoid recreating function
   const completeScanRef = useRef<(() => Promise<void>) | null>(null); // Store completeScan function to avoid dependency issues
+  const stencilImageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map()); // Cache loaded stencil images
+  const startDelayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Store timeout for cleanup
+  const analyzeEdgeDensityRef = useRef<(() => Promise<{ score: number; brightness: number; motion: number }>) | null>(null); // Store analyzeEdgeDensity to avoid dependency issues
+  const captureImageRef = useRef<((segmentId: CaptureSegmentId, segmentIndex: number) => Promise<boolean>) | null>(null); // Store captureImage to avoid dependency issues
+  const scoreHistoryRef = useRef<number[]>([]); // Track recent scores for consistency check
+  const previousFrameRef = useRef<ImageData | null>(null); // Store previous frame for motion detection
   const captureProgress = Math.min(recordingTime / TOTAL_CAPTURE_DURATION, 1);
   const activeSegment = CAPTURE_SEGMENTS[currentSegmentIndex] ?? CAPTURE_SEGMENTS[0];
   const activeSegmentStatus = segmentStatuses[activeSegment.id];
 
-  // Stencil images mapping - Flow: Front → Right side → Rear → Left side
-  const stencilImages = [
-    { id: 'front', path: '/Front.png', label: 'Front View' },
-    { id: 'right_front_fender', path: '/Right_front_fender.png', label: 'Right Front Fender' },
-    { id: 'right_front_door', path: '/Right_front_door.png', label: 'Right Front Door' },
-    { id: 'right_rear_door', path: '/Right_rear_door.png', label: 'Right Rear Door' },
-    { id: 'right_rear_fender', path: '/Right_rear_fender.png', label: 'Right Rear Fender' },
-    { id: 'rear', path: '/Rear.png', label: 'Rear View' },
-    { id: 'left_rear_fender', path: '/Left_rear_fender.png', label: 'Left Rear Fender' },
-    { id: 'left_rear_door', path: '/Left_rear_door.png', label: 'Left Rear Door' },
-    { id: 'left_front_door', path: '/Left_front_door.png', label: 'Left Front Door' },
-    { id: 'left_front_fender', path: '/Left_front_fender.png', label: 'Left Front Fender' }
-  ];
+  // Use the constant stencil images array
+  const stencilImages = STENCIL_IMAGES;
 
   // Get instruction based on current stencil and verification status
   const getCurrentInstruction = useCallback((): string => {
@@ -221,9 +230,10 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
   }, [currentStencilIndex, stencilVerified, stencilImages]);
 
   // Edge Detection & Density Analysis Function - Only analyzes INSIDE stencil region
-  const analyzeEdgeDensity = useCallback(async (): Promise<number> => {
+  // Returns: { score: number, brightness: number, motion: number }
+  const analyzeEdgeDensity = useCallback(async (): Promise<{ score: number; brightness: number; motion: number }> => {
     if (!webcamRef.current || currentStencilIndex >= stencilImages.length || isAnalyzingRef.current) {
-      return 0;
+      return { score: 0, brightness: 0, motion: 1 };
     }
 
     try {
@@ -231,12 +241,12 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       
       // Get camera frame
       const screenshot = webcamRef.current.getScreenshot();
-      if (!screenshot) return 0;
+      if (!screenshot) return { score: 0, brightness: 0, motion: 1 };
 
       // Create canvas for processing
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      if (!ctx) return 0;
+      if (!ctx) return { score: 0, brightness: 0, motion: 1 };
 
       // Standardize size for processing (smaller = faster)
       const processWidth = 640;
@@ -256,14 +266,70 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       ctx.drawImage(cameraImg, 0, 0, processWidth, processHeight);
       const cameraData = ctx.getImageData(0, 0, processWidth, processHeight);
       const cameraPixels = cameraData.data;
+      
+      // Calculate brightness (average luminance of the image)
+      let totalBrightness = 0;
+      let pixelCount = 0;
+      for (let i = 0; i < cameraPixels.length; i += 4) {
+        const r = cameraPixels[i];
+        const g = cameraPixels[i + 1];
+        const b = cameraPixels[i + 2];
+        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255; // Normalized 0-1
+        totalBrightness += luminance;
+        pixelCount++;
+      }
+      const avgBrightness = totalBrightness / pixelCount;
+      
+      // Calculate motion by comparing with previous frame
+      let motion = 0;
+      if (previousFrameRef.current) {
+        const prevData = previousFrameRef.current.data;
+        let diffSum = 0;
+        let diffCount = 0;
+        
+        // Sample every 10th pixel for performance
+        for (let i = 0; i < cameraPixels.length && i < prevData.length; i += 40) {
+          const currR = cameraPixels[i];
+          const currG = cameraPixels[i + 1];
+          const currB = cameraPixels[i + 2];
+          const prevR = prevData[i];
+          const prevG = prevData[i + 1];
+          const prevB = prevData[i + 2];
+          
+          const currLum = 0.299 * currR + 0.587 * currG + 0.114 * currB;
+          const prevLum = 0.299 * prevR + 0.587 * prevG + 0.114 * prevB;
+          
+          diffSum += Math.abs(currLum - prevLum) / 255; // Normalized difference
+          diffCount++;
+        }
+        motion = diffCount > 0 ? diffSum / diffCount : 1;
+      } else {
+        motion = 0; // No previous frame, assume no motion
+      }
+      
+      // Store current frame for next comparison
+      previousFrameRef.current = new ImageData(
+        new Uint8ClampedArray(cameraPixels),
+        processWidth,
+        processHeight
+      );
 
-      // Load stencil image to use as mask
-      const stencilImg = new Image();
-      await new Promise<void>((resolve, reject) => {
-        stencilImg.onload = () => resolve();
-        stencilImg.onerror = () => reject(new Error('Failed to load stencil image'));
-        stencilImg.src = stencilImages[currentStencilIndex].path;
-      });
+      // Load stencil image to use as mask - use cache if available
+      const stencilPath = stencilImages[currentStencilIndex].path;
+      let stencilImg = stencilImageCacheRef.current.get(stencilPath);
+      
+      if (!stencilImg) {
+        // Cache miss - load and cache the image
+        stencilImg = new Image();
+        await new Promise<void>((resolve, reject) => {
+          stencilImg!.onload = () => {
+            stencilImageCacheRef.current.set(stencilPath, stencilImg!);
+            resolve();
+          };
+          stencilImg!.onerror = () => reject(new Error('Failed to load stencil image'));
+          stencilImg!.src = stencilPath;
+        });
+      }
 
       // Draw stencil to canvas to get its mask
       ctx.clearRect(0, 0, processWidth, processHeight);
@@ -362,14 +428,29 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       setEdgeDensity(edgeDensityRatio);
       setAlignmentScore(alignmentScore);
 
-      return alignmentScore;
+      return {
+        score: alignmentScore,
+        brightness: avgBrightness,
+        motion: motion
+      };
     } catch (error) {
       console.error('[Edge Detection] Error:', error);
-      return 0;
+      return { score: 0, brightness: 0, motion: 1 };
     } finally {
       isAnalyzingRef.current = false;
     }
   }, [currentStencilIndex, stencilImages]);
+
+  // Update ref whenever analyzeEdgeDensity changes
+  useEffect(() => {
+    analyzeEdgeDensityRef.current = analyzeEdgeDensity;
+  }, [analyzeEdgeDensity]);
+  
+  // Reset score history and previous frame when stencil changes
+  useEffect(() => {
+    scoreHistoryRef.current = [];
+    previousFrameRef.current = null;
+  }, [currentStencilIndex]);
 
   // Image capture function - must be defined before useEffect that uses it
   const captureImage = useCallback(
@@ -416,6 +497,11 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     []
   );
 
+  // Update ref whenever captureImage changes
+  useEffect(() => {
+    captureImageRef.current = captureImage;
+  }, [captureImage]);
+
   // Continuous edge analysis when recording
   useEffect(() => {
     console.log(`[Edge Detection] useEffect triggered - status: ${status}, stencilIndex: ${currentStencilIndex}/${stencilImages.length}, verified: ${stencilVerified}`);
@@ -454,19 +540,58 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       analysisIntervalRef.current = null;
     }
 
-    const requiredSuccessCount = 5; // Need 5 consecutive good scores for verification
-    const threshold = 0.30; // 30% alignment score threshold - stricter to avoid false positives
+    const requiredSuccessCount = 12; // Need 12 consecutive good scores for verification (increased from 5)
+    const threshold = 0.40; // 40% alignment score threshold - stricter to avoid false positives
+    const minScoreConsistency = 0.15; // Scores must be within 15% of each other (low variance)
+    const maxMotionThreshold = 0.20; // Maximum allowed motion between frames (20%)
 
     console.log(`[Edge Detection] Starting analysis interval for stencil ${currentStencilIndex}, current counter: ${successCountRef.current}`);
 
-    analysisIntervalRef.current = setInterval(async () => {
-      const score = await analyzeEdgeDensity();
+    // Reset score history when starting new stencil
+    scoreHistoryRef.current = [];
+    previousFrameRef.current = null;
+
+    // Add a small delay before starting analysis to prevent immediate hanging
+    startDelayTimeoutRef.current = setTimeout(() => {
+      analysisIntervalRef.current = setInterval(async () => {
+        if (!analyzeEdgeDensityRef.current) return;
+        const result = await analyzeEdgeDensityRef.current();
+        const score = result.score;
+        const brightness = result.brightness;
+        const motion = result.motion;
       
-      if (score >= threshold) {
+      // Check multiple conditions before counting as success
+      const isBrightnessValid = brightness >= 0.15 && brightness <= 0.85; // Not too dark or too bright
+      const isMotionLow = motion <= maxMotionThreshold; // Camera must be relatively still
+      const isScoreHighEnough = score >= threshold;
+      
+      // Add score to history (keep last 5 scores)
+      scoreHistoryRef.current.push(score);
+      if (scoreHistoryRef.current.length > 5) {
+        scoreHistoryRef.current.shift();
+      }
+      
+      // Check score consistency (low variance in recent scores)
+      let isConsistent = true;
+      if (scoreHistoryRef.current.length >= 3) {
+        const scores = scoreHistoryRef.current;
+        const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+        const variance = scores.reduce((sum, s) => sum + Math.pow(s - avg, 2), 0) / scores.length;
+        const stdDev = Math.sqrt(variance);
+        isConsistent = stdDev <= minScoreConsistency; // Low standard deviation = consistent
+      }
+      
+      const allConditionsMet = isScoreHighEnough && isBrightnessValid && isMotionLow && isConsistent;
+      
+      if (allConditionsMet) {
         const previousCount = successCountRef.current;
         successCountRef.current++;
         const currentCount = successCountRef.current;
         console.log(`[Edge Detection] Good alignment detected: ${previousCount} → ${currentCount} (${currentCount}/${requiredSuccessCount})`);
+        console.log(`  - Score: ${(score * 100).toFixed(2)}% (threshold: ${(threshold * 100).toFixed(2)}%)`);
+        console.log(`  - Brightness: ${(brightness * 100).toFixed(2)}% (valid: ${isBrightnessValid})`);
+        console.log(`  - Motion: ${(motion * 100).toFixed(2)}% (low: ${isMotionLow})`);
+        console.log(`  - Consistency: ${isConsistent ? '✓' : '✗'}`);
         
         if (currentCount >= requiredSuccessCount) {
           console.log(`[Edge Detection] Threshold reached! Attempting to verify...`);
@@ -505,9 +630,9 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
             // Capture and upload image when stencil turns green
             const segmentIndex = CAPTURE_SEGMENTS.findIndex(seg => seg.id === currentStencil.id);
             
-            if (segmentIndex !== -1) {
+            if (segmentIndex !== -1 && captureImageRef.current) {
               console.log(`[Capture] Stencil verified, capturing image for ${currentStencil.label} (segment: ${CAPTURE_SEGMENTS[segmentIndex].id})`);
-              captureImage(CAPTURE_SEGMENTS[segmentIndex].id as CaptureSegmentId, segmentIndex)
+              captureImageRef.current(CAPTURE_SEGMENTS[segmentIndex].id as CaptureSegmentId, segmentIndex)
                 .then(success => {
                   if (success) {
                     console.log(`[Capture] ✓ Image captured and uploaded for ${currentStencil.label}`);
@@ -588,15 +713,27 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
           });
         }
       } else {
-        // Reset counter if score drops
+        // Reset counter if any condition fails
         if (successCountRef.current > 0) {
-          console.log(`[Edge Detection] Alignment lost (score: ${(score * 100).toFixed(2)}%), resetting counter from ${successCountRef.current} to 0`);
+          const reasons = [];
+          if (!isScoreHighEnough) reasons.push(`score too low (${(score * 100).toFixed(2)}% < ${(threshold * 100).toFixed(2)}%)`);
+          if (!isBrightnessValid) reasons.push(`brightness invalid (${(brightness * 100).toFixed(2)}%)`);
+          if (!isMotionLow) reasons.push(`motion too high (${(motion * 100).toFixed(2)}%)`);
+          if (!isConsistent) reasons.push('scores inconsistent');
+          
+          console.log(`[Edge Detection] Alignment lost - ${reasons.join(', ')}. Resetting counter from ${successCountRef.current} to 0`);
           successCountRef.current = 0;
+          scoreHistoryRef.current = []; // Reset history on failure
         }
       }
-    }, 500); // Check every 500ms
+      }, 800); // Check every 800ms (increased from 500ms for better performance)
+    }, 300); // Wait 300ms before starting analysis to prevent immediate hanging
 
     return () => {
+      if (startDelayTimeoutRef.current) {
+        clearTimeout(startDelayTimeoutRef.current);
+        startDelayTimeoutRef.current = null;
+      }
       if (analysisIntervalRef.current) {
         console.log('[Edge Detection] Cleaning up interval');
         clearInterval(analysisIntervalRef.current);
@@ -604,7 +741,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       }
       // Don't reset counter on cleanup - let it persist
     };
-  }, [status, currentStencilIndex, stencilVerified, stencilImages, analyzeEdgeDensity, captureImage]);
+  }, [status, currentStencilIndex, stencilVerified]); // Removed stencilImages, analyzeEdgeDensity and captureImage to prevent infinite loops
 
   // Update instruction when stencil changes or verification status changes
   useEffect(() => {
@@ -1368,16 +1505,16 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
                     alt={stencilImages[currentStencilIndex].label}
                     className="w-full h-full object-contain relative z-10"
                     style={{
-                      // Darken the stencil to make it more visible - make it very dark
-                      // Use multiple drop-shadows in 8 directions to create a colored outline effect
+                      // Darken the stencil to make it more visible
+                      // Use fewer drop-shadows with lighter colors for better performance
                       filter: stencilVerified
-                        ? 'brightness(0.15) contrast(3) drop-shadow(2px 0 0 rgba(34, 197, 94, 1)) drop-shadow(-2px 0 0 rgba(34, 197, 94, 1)) drop-shadow(0 2px 0 rgba(34, 197, 94, 1)) drop-shadow(0 -2px 0 rgba(34, 197, 94, 1)) drop-shadow(2px 2px 0 rgba(34, 197, 94, 1)) drop-shadow(-2px -2px 0 rgba(34, 197, 94, 1)) drop-shadow(2px -2px 0 rgba(34, 197, 94, 1)) drop-shadow(-2px 2px 0 rgba(34, 197, 94, 1)) drop-shadow(1px 0 0 rgba(34, 197, 94, 1)) drop-shadow(-1px 0 0 rgba(34, 197, 94, 1)) drop-shadow(0 1px 0 rgba(34, 197, 94, 1)) drop-shadow(0 -1px 0 rgba(34, 197, 94, 1))'
-                        : 'brightness(0.15) contrast(3) drop-shadow(2px 0 0 rgba(239, 68, 68, 1)) drop-shadow(-2px 0 0 rgba(239, 68, 68, 1)) drop-shadow(0 2px 0 rgba(239, 68, 68, 1)) drop-shadow(0 -2px 0 rgba(239, 68, 68, 1)) drop-shadow(2px 2px 0 rgba(239, 68, 68, 1)) drop-shadow(-2px -2px 0 rgba(239, 68, 68, 1)) drop-shadow(2px -2px 0 rgba(239, 68, 68, 1)) drop-shadow(-2px 2px 0 rgba(239, 68, 68, 1)) drop-shadow(1px 0 0 rgba(239, 68, 68, 1)) drop-shadow(-1px 0 0 rgba(239, 68, 68, 1)) drop-shadow(0 1px 0 rgba(239, 68, 68, 1)) drop-shadow(0 -1px 0 rgba(239, 68, 68, 1))',
+                        ? 'brightness(0.15) contrast(3) drop-shadow(2px 0 0 rgba(34, 197, 94, 0.6)) drop-shadow(-2px 0 0 rgba(34, 197, 94, 0.6)) drop-shadow(0 2px 0 rgba(34, 197, 94, 0.6)) drop-shadow(0 -2px 0 rgba(34, 197, 94, 0.6))'
+                        : 'brightness(0.15) contrast(3) drop-shadow(2px 0 0 rgba(239, 68, 68, 0.6)) drop-shadow(-2px 0 0 rgba(239, 68, 68, 0.6)) drop-shadow(0 2px 0 rgba(239, 68, 68, 0.6)) drop-shadow(0 -2px 0 rgba(239, 68, 68, 0.6))',
                       transition: 'all 0.7s cubic-bezier(0.4, 0, 0.2, 1)',
                       imageRendering: 'crisp-edges',
                       WebkitFilter: stencilVerified
-                        ? 'brightness(0.15) contrast(3) drop-shadow(2px 0 0 rgba(34, 197, 94, 1)) drop-shadow(-2px 0 0 rgba(34, 197, 94, 1)) drop-shadow(0 2px 0 rgba(34, 197, 94, 1)) drop-shadow(0 -2px 0 rgba(34, 197, 94, 1)) drop-shadow(2px 2px 0 rgba(34, 197, 94, 1)) drop-shadow(-2px -2px 0 rgba(34, 197, 94, 1)) drop-shadow(2px -2px 0 rgba(34, 197, 94, 1)) drop-shadow(-2px 2px 0 rgba(34, 197, 94, 1)) drop-shadow(1px 0 0 rgba(34, 197, 94, 1)) drop-shadow(-1px 0 0 rgba(34, 197, 94, 1)) drop-shadow(0 1px 0 rgba(34, 197, 94, 1)) drop-shadow(0 -1px 0 rgba(34, 197, 94, 1))'
-                        : 'brightness(0.15) contrast(3) drop-shadow(2px 0 0 rgba(239, 68, 68, 1)) drop-shadow(-2px 0 0 rgba(239, 68, 68, 1)) drop-shadow(0 2px 0 rgba(239, 68, 68, 1)) drop-shadow(0 -2px 0 rgba(239, 68, 68, 1)) drop-shadow(2px 2px 0 rgba(239, 68, 68, 1)) drop-shadow(-2px -2px 0 rgba(239, 68, 68, 1)) drop-shadow(2px -2px 0 rgba(239, 68, 68, 1)) drop-shadow(-2px 2px 0 rgba(239, 68, 68, 1)) drop-shadow(1px 0 0 rgba(239, 68, 68, 1)) drop-shadow(-1px 0 0 rgba(239, 68, 68, 1)) drop-shadow(0 1px 0 rgba(239, 68, 68, 1)) drop-shadow(0 -1px 0 rgba(239, 68, 68, 1))'
+                        ? 'brightness(0.15) contrast(3) drop-shadow(2px 0 0 rgba(34, 197, 94, 0.6)) drop-shadow(-2px 0 0 rgba(34, 197, 94, 0.6)) drop-shadow(0 2px 0 rgba(34, 197, 94, 0.6)) drop-shadow(0 -2px 0 rgba(34, 197, 94, 0.6))'
+                        : 'brightness(0.15) contrast(3) drop-shadow(2px 0 0 rgba(239, 68, 68, 0.6)) drop-shadow(-2px 0 0 rgba(239, 68, 68, 0.6)) drop-shadow(0 2px 0 rgba(239, 68, 68, 0.6)) drop-shadow(0 -2px 0 rgba(239, 68, 68, 0.6))'
                     }}
                   />
                   
