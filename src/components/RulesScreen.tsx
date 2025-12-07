@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowRight, Shield, Camera, Car, Clock, AlertTriangle, CheckCircle, User } from 'lucide-react';
-import UploadLimitsDisplay from './UploadLimitsDisplay';
-import { useUploadLimitsContext } from '../contexts/UploadLimitsContext';
+// UploadLimitsDisplay and useUploadLimitsContext removed in SDK mode
 
 interface RulesScreenProps {
   onStart: (vehicleDetails: { make: string; model: string; regNumber: string }) => void;
@@ -14,7 +13,7 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
   const [vehicleMake, setVehicleMake] = useState('');
   const [vehicleModel, setVehicleModel] = useState('');
   const [vehicleRegNumber, setVehicleRegNumber] = useState('');
-  const { canPerformAssessment } = useUploadLimitsContext();
+  // Upload limits check removed in SDK mode
   const rules = [
     {
       icon: Camera,
@@ -108,15 +107,7 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
           ))}
         </div>
 
-        {/* Upload Limits Display */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6 }}
-          className="mb-6"
-        >
-          <UploadLimitsDisplay />
-        </motion.div>
+        {/* Upload Limits Display - Removed in SDK mode */}
 
 
         {/* Action Buttons */}
@@ -136,22 +127,7 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
             Start recording with AI analysis
           </motion.button>
           
-          {/* Warning if limits exceeded, but still allow proceeding */}
-          {!canPerformAssessment && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mt-3 bg-yellow-500/20 border border-yellow-500/50 rounded-xl p-3 flex items-start gap-2"
-            >
-              <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
-              <div className="text-xs text-yellow-300">
-                <p className="font-semibold mb-1">⚠️ Upload Limit Exceeded</p>
-                <p className="text-yellow-200/80">
-                  You can still proceed, but uploads may be restricted. Testing mode available if backend is down.
-                </p>
-              </div>
-            </motion.div>
-          )}
+          {/* Upload limit warning - Removed in SDK mode */}
           
           <motion.button
             whileHover={{ scale: 1.02 }}

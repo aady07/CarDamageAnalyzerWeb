@@ -1,13 +1,15 @@
 import { CaptureSegmentId } from '../../types/capture';
-import { dataUrlToJpegBlob, getPresignedUploadUrl, uploadFileToS3 } from '../api/uploadService';
 
-export type StorageLocation = 's3' | 'android_local';
+/**
+ * Android-only image storage strategy
+ * Images are saved locally on Android device via WebView bridge
+ */
+export type StorageLocation = 'android_local';
 
 export interface StoredImageReference {
   location: StorageLocation;
-  uri: string;
+  uri: string; // Local file path/URI returned by Android
   segmentId: CaptureSegmentId;
-  fileKey?: string;
 }
 
 export interface PersistImageParams {
@@ -20,23 +22,18 @@ export interface ImageStorageStrategy {
   persist(params: PersistImageParams): Promise<StoredImageReference>;
 }
 
-export class S3ImageStorageStrategy implements ImageStorageStrategy {
-  async persist(params: PersistImageParams): Promise<StoredImageReference> {
-    const contentType = params.contentType ?? 'image/jpeg';
-    const blob = await dataUrlToJpegBlob(params.dataUrl);
-    const fileName = `car_${params.segmentId}-${Date.now()}.jpg`;
-    const { presignedUrl, s3Url, fileKey } = await getPresignedUploadUrl({ fileName, contentType });
-    await uploadFileToS3({ presignedUrl, file: blob, contentType });
-
-    return {
-      location: 's3',
-      uri: s3Url,
-      segmentId: params.segmentId,
-      fileKey,
-    };
-  }
+/**
+ * Converts data URL to blob
+ */
+async function dataUrlToJpegBlob(dataUrl: string): Promise<Blob> {
+  const res = await fetch(dataUrl);
+  return await res.blob();
 }
 
+/**
+ * Android Local Storage Strategy
+ * Saves images to Android device's local storage via WebView bridge
+ */
 export class LocalAndroidImageStorageStrategy implements ImageStorageStrategy {
   async persist(params: PersistImageParams): Promise<StoredImageReference> {
     const bridge = (window as any)?.AndroidImageStore;
@@ -50,6 +47,7 @@ export class LocalAndroidImageStorageStrategy implements ImageStorageStrategy {
     const base64Payload = await blobToBase64(blob);
     const fileName = `car_${params.segmentId}-${Date.now()}.jpg`;
 
+    // Android bridge saves image and returns local file path/URI
     const uri: string = await bridge.saveImage(fileName, base64Payload, contentType);
 
     return {

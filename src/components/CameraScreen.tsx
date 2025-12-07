@@ -2,37 +2,18 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Webcam from 'react-webcam';
 import { ArrowLeft, AlertTriangle, HelpCircle, Brain, Play, TestTube } from 'lucide-react';
-import { getVideoPresignedUploadUrl, uploadVideoToS3 } from '../services/api/videoUploadService';
-import { submitCarInspection } from '../services/api/carInspectionService';
 import SuccessScreen from './SuccessScreen';
 import { CaptureSegment, CaptureSegmentId, SegmentStatus } from '../types/capture';
-import { ImageStorageStrategy, S3ImageStorageStrategy, StoredImageReference } from '../services/storage/imageStorageStrategy';
+import { LocalAndroidImageStorageStrategy, StoredImageReference } from '../services/storage/imageStorageStrategy';
+import { getAndroidBridge } from '../services/androidBridge';
+import { getSessionType } from '../utils/sessionType';
 
-// Pushover notification function
-const sendPushoverNotification = async (message: string) => {
-  try {
-    const formData = new FormData();
-    formData.append('token', 'am7q7d134rotjhinmb6edcoqfz4co8');
-    formData.append('user', 'udhd2hsu4ayu6t5i8qvp4u83devxbr');
-    formData.append('message', message);
-    formData.append('title', 'Car Inspection Alert');
-    formData.append('priority', '0');
-
-    await fetch('https://api.pushover.net/1/messages.json', {
-      method: 'POST',
-      body: formData
-    });
-  } catch (error) {
-    // Silent fail - don't interrupt user flow
-  }
-};
 
 
 interface CameraScreenProps {
   vehicleDetails: { make: string; model: string; regNumber: string } | null;
   onComplete: () => void;
   onBack: () => void;
-  imageStorageStrategy?: ImageStorageStrategy;
 }
 
 type ScanStatus = 'idle' | 'recording' | 'processing' | 'completed' | 'error';
@@ -112,17 +93,18 @@ const CAPTURE_SEGMENTS: CaptureSegment[] = [
 const TOTAL_CAPTURE_DURATION = CAPTURE_SEGMENTS[CAPTURE_SEGMENTS.length - 1].timing + 5;
 
 // Stencil images mapping - Flow: Front → Right side → Rear → Left side
+// Using relative paths (./) for WebView compatibility (works in both web and Android WebView)
 const STENCIL_IMAGES = [
-  { id: 'front', path: '/Front.png', label: 'Front View' },
-  { id: 'right_front_fender', path: '/Right_front_fender.png', label: 'Right Front Fender' },
-  { id: 'right_front_door', path: '/Right_front_door.png', label: 'Right Front Door' },
-  { id: 'right_rear_door', path: '/Right_rear_door.png', label: 'Right Rear Door' },
-  { id: 'right_rear_fender', path: '/Right_rear_fender.png', label: 'Right Rear Fender' },
-  { id: 'rear', path: '/Rear.png', label: 'Rear View' },
-  { id: 'left_rear_fender', path: '/Left_rear_fender.png', label: 'Left Rear Fender' },
-  { id: 'left_rear_door', path: '/Left_rear_door.png', label: 'Left Rear Door' },
-  { id: 'left_front_door', path: '/Left_front_door.png', label: 'Left Front Door' },
-  { id: 'left_front_fender', path: '/Left_front_fender.png', label: 'Left Front Fender' }
+  { id: 'front', path: './Front.png', label: 'Front View' },
+  { id: 'right_front_fender', path: './Right_front_fender.png', label: 'Right Front Fender' },
+  { id: 'right_front_door', path: './Right_front_door.png', label: 'Right Front Door' },
+  { id: 'right_rear_door', path: './Right_rear_door.png', label: 'Right Rear Door' },
+  { id: 'right_rear_fender', path: './Right_rear_fender.png', label: 'Right Rear Fender' },
+  { id: 'rear', path: './Rear.png', label: 'Rear View' },
+  { id: 'left_rear_fender', path: './Left_rear_fender.png', label: 'Left Rear Fender' },
+  { id: 'left_rear_door', path: './Left_rear_door.png', label: 'Left Rear Door' },
+  { id: 'left_front_door', path: './Left_front_door.png', label: 'Left Front Door' },
+  { id: 'left_front_fender', path: './Left_front_fender.png', label: 'Left Front Fender' }
 ];
 
 const getInitialSegmentStatuses = (): Record<CaptureSegmentId, SegmentStatus> => {
@@ -135,7 +117,7 @@ const getInitialSegmentStatuses = (): Record<CaptureSegmentId, SegmentStatus> =>
 
 const TESTING_MODE_KEY = 'camera_testing_bypass_enabled';
 
-const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete, onBack, imageStorageStrategy }) => {
+const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete, onBack }) => {
   // Check for testing mode bypass
   const [testingMode, setTestingMode] = useState<boolean>(false);
   
@@ -158,18 +140,20 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
   const [segmentStatuses, setSegmentStatuses] = useState<Record<CaptureSegmentId, SegmentStatus>>(getInitialSegmentStatuses);
   
   // New state for enhanced UI
-  const [currentInstruction, setCurrentInstruction] = useState<string>('');
+  const [currentInstruction, setCurrentInstruction] = useState<{ text: string; arrowDirection: 'left' | 'right' | 'up' | 'down' | 'none' }>({ text: '', arrowDirection: 'none' });
   const [cameraBlurred, setCameraBlurred] = useState(true);
   const [isLandscape, setIsLandscape] = useState(false);
   const [showOrientationTip, setShowOrientationTip] = useState(false);
   const [currentStencilIndex, setCurrentStencilIndex] = useState(0);
   const [stencilVerified, setStencilVerified] = useState(false);
+  const [showArrowAfterVerify, setShowArrowAfterVerify] = useState(false);
   const [edgeDensity, setEdgeDensity] = useState(0);
   const [alignmentScore, setAlignmentScore] = useState(0);
   const isAnalyzingRef = useRef<boolean>(false); // Use ref instead of state to avoid recreating function
   const completeScanRef = useRef<(() => Promise<void>) | null>(null); // Store completeScan function to avoid dependency issues
   const stencilImageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map()); // Cache loaded stencil images
   const startDelayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Store timeout for cleanup
+  const arrowTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Store arrow timeout to prevent early clearing
   const analyzeEdgeDensityRef = useRef<(() => Promise<{ score: number; brightness: number; motion: number }>) | null>(null); // Store analyzeEdgeDensity to avoid dependency issues
   const captureImageRef = useRef<((segmentId: CaptureSegmentId, segmentIndex: number) => Promise<boolean>) | null>(null); // Store captureImage to avoid dependency issues
   const scoreHistoryRef = useRef<number[]>([]); // Track recent scores for consistency check
@@ -182,51 +166,60 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
   const stencilImages = STENCIL_IMAGES;
 
   // Get instruction based on current stencil and verification status
-  const getCurrentInstruction = useCallback((): string => {
+  // Returns: { text: string, arrowDirection: 'left' | 'right' | 'up' | 'down' | 'none' }
+  const getCurrentInstruction = useCallback((): { text: string; arrowDirection: 'left' | 'right' | 'up' | 'down' | 'none' } => {
     if (currentStencilIndex >= stencilImages.length) {
-      return 'Scan complete!';
+      return { text: 'Scan complete!', arrowDirection: 'none' };
     }
 
     const currentStencil = stencilImages[currentStencilIndex];
     
-    // If stencil is verified, show next movement instruction
+    // If stencil is verified, show next movement instruction (from user's perspective)
     if (stencilVerified) {
       const nextIndex = currentStencilIndex + 1;
       if (nextIndex >= stencilImages.length) {
-        return 'All parts captured! Processing...';
+        return { text: 'All parts captured! Processing...', arrowDirection: 'none' };
       }
       
       const nextStencil = stencilImages[nextIndex];
-      const instructions: Record<string, string> = {
-        'front': 'Move to the right side of the car to show the front fender',
-        'right_front_fender': 'Continue along the right side to show the front door',
-        'right_front_door': 'Continue to the right rear door',
-        'right_rear_door': 'Continue to the right rear fender',
-        'right_rear_fender': 'Move to the back of the car',
-        'rear': 'Move to the left side of the car to show the rear fender',
-        'left_rear_fender': 'Continue along the left side to show the rear door',
-        'left_rear_door': 'Continue to the left front door',
-        'left_front_door': 'Finish at the left front fender'
+      // Instructions from user's perspective with movement direction and part name
+      // User's left = car's right, user's right = car's left
+      // Only mention left/right in movement, not in part name
+      // Arrow is shown separately, always show left arrow
+      const instructions: Record<string, { text: string; arrow: 'left' | 'right' | 'up' | 'down' | 'none' }> = {
+        'front': { text: 'Move left to show front fender', arrow: 'left' },
+        'right_front_fender': { text: 'Move left to show front door', arrow: 'left' },
+        'right_front_door': { text: 'Move left to show rear door', arrow: 'left' },
+        'right_rear_door': { text: 'Move left to show rear fender', arrow: 'left' },
+        'right_rear_fender': { text: 'Move back to show rear view', arrow: 'left' },
+        'rear': { text: 'Move right to show rear fender', arrow: 'left' },
+        'left_rear_fender': { text: 'Move right to show rear door', arrow: 'left' },
+        'left_rear_door': { text: 'Move right to show front door', arrow: 'left' },
+        'left_front_door': { text: 'Move right to show front fender', arrow: 'left' }
       };
       
-      return instructions[currentStencil.id] || `Move to ${nextStencil.label}`;
+      const instruction = instructions[currentStencil.id];
+      if (instruction) {
+        return { text: instruction.text, arrowDirection: instruction.arrow };
+      }
+      return { text: `Move to ${nextStencil.label}`, arrowDirection: 'none' };
     }
     
     // If not verified, show alignment instruction
     const alignmentInstructions: Record<string, string> = {
       'front': 'Position the front of the car in the frame',
-      'right_front_fender': 'Align the right front fender in the frame',
-      'right_front_door': 'Align the right front door in the frame',
-      'right_rear_door': 'Align the right rear door in the frame',
-      'right_rear_fender': 'Align the right rear fender in the frame',
+      'right_front_fender': 'Align the front fender in the frame',
+      'right_front_door': 'Align the front door in the frame',
+      'right_rear_door': 'Align the rear door in the frame',
+      'right_rear_fender': 'Align the rear fender in the frame',
       'rear': 'Position the back of the car in the frame',
-      'left_rear_fender': 'Align the left rear fender in the frame',
-      'left_rear_door': 'Align the left rear door in the frame',
-      'left_front_door': 'Align the left front door in the frame',
-      'left_front_fender': 'Align the left front fender in the frame'
+      'left_rear_fender': 'Align the rear fender in the frame',
+      'left_rear_door': 'Align the rear door in the frame',
+      'left_front_door': 'Align the front door in the frame',
+      'left_front_fender': 'Align the front fender in the frame'
     };
     
-    return alignmentInstructions[currentStencil.id] || `Align ${currentStencil.label}`;
+    return { text: alignmentInstructions[currentStencil.id] || `Align ${currentStencil.label}`, arrowDirection: 'none' };
   }, [currentStencilIndex, stencilVerified, stencilImages]);
 
   // Edge Detection & Density Analysis Function - Only analyzes INSIDE stencil region
@@ -601,6 +594,17 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
             
             console.log(`[Edge Detection] ✓✓✓ ${stencilImages[currentStencilIndex].label} VERIFIED! ✓✓✓`);
             
+            // Show arrow for exactly 5 seconds when stencil turns green
+            // Clear any existing arrow timeout
+            if (arrowTimeoutRef.current) {
+              clearTimeout(arrowTimeoutRef.current);
+            }
+            setShowArrowAfterVerify(true);
+            arrowTimeoutRef.current = setTimeout(() => {
+              setShowArrowAfterVerify(false);
+              arrowTimeoutRef.current = null;
+            }, 5000); // Exactly 5 seconds
+            
             // Clear interval
             if (analysisIntervalRef.current) {
               clearInterval(analysisIntervalRef.current);
@@ -609,23 +613,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
             
             // Update instruction immediately when verified
             const currentStencil = stencilImages[currentStencilIndex];
-            const nextIndex = currentStencilIndex + 1;
-            if (nextIndex < stencilImages.length) {
-              const nextStencil = stencilImages[nextIndex];
-              const instructions: Record<string, string> = {
-                'front': 'Move to the right side of the car to show the front fender',
-                'right_front_fender': 'Continue along the right side to show the front door',
-                'right_front_door': 'Continue to the right rear door',
-                'right_rear_door': 'Continue to the right rear fender',
-                'right_rear_fender': 'Move to the back of the car',
-                'rear': 'Move to the left side of the car to show the rear fender',
-                'left_rear_fender': 'Continue along the left side to show the rear door',
-                'left_rear_door': 'Continue to the left front door',
-                'left_front_door': 'Finish at the left front fender'
-              };
-              const nextInstruction = instructions[currentStencil.id] || `Move to ${nextStencil.label}`;
-              setCurrentInstruction(nextInstruction);
-            }
+            // Instruction will be updated by getCurrentInstruction() via useEffect
             
             // Capture and upload image when stencil turns green
             const segmentIndex = CAPTURE_SEGMENTS.findIndex(seg => seg.id === currentStencil.id);
@@ -647,22 +635,25 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
               console.warn(`[Capture] Could not find segment for stencil: ${currentStencil.id}`);
             }
             
-            // Move to next stencil after 2 seconds
+            // Move to next stencil after 5 seconds (same as arrow duration)
+            // Arrow timeout will handle hiding the arrow independently
             if (currentStencilIndex < stencilImages.length - 1) {
               const nextIndex = currentStencilIndex + 1;
-              console.log(`[Stencil Progression] Moving from stencil ${currentStencilIndex} (${stencilImages[currentStencilIndex].label}) to stencil ${nextIndex} (${stencilImages[nextIndex].label}) in 2 seconds...`);
+              console.log(`[Stencil Progression] Moving from stencil ${currentStencilIndex} (${stencilImages[currentStencilIndex].label}) to stencil ${nextIndex} (${stencilImages[nextIndex].label}) in 5 seconds...`);
               // Update instruction immediately to guide user
               setTimeout(() => {
                 console.log(`[Stencil Progression] ✓ Now showing stencil ${nextIndex}: ${stencilImages[nextIndex].label}`);
                 setCurrentStencilIndex(nextIndex);
                 setStencilVerified(false);
+                // Don't reset showArrowAfterVerify here - let the timeout handle it
+                // This ensures arrow shows for full 5 seconds regardless of stencil transition
                 setEdgeDensity(0);
                 setAlignmentScore(0);
                 successCountRef.current = 0; // Reset for next stencil
                 previousStencilIndexRef.current = nextIndex; // Update previous to next index
                 // Update instruction for new stencil
                 setCurrentInstruction(getCurrentInstruction());
-              }, 2000);
+              }, 5000); // Wait 5 seconds before showing next stencil
             } else {
               console.log(`[Stencil Progression] All ${stencilImages.length} stencils completed!`);
               // All stencils verified, check if all images are uploaded and submit claim
@@ -755,11 +746,9 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
   const captureTimersRef = useRef<NodeJS.Timeout[]>([]);
   const startTimeRef = useRef<number>(0);
   const storedImagesRef = useRef<Partial<Record<CaptureSegmentId, StoredImageReference>>>({});
-  const storageStrategyRef = useRef<ImageStorageStrategy>(imageStorageStrategy ?? new S3ImageStorageStrategy());
 
-  useEffect(() => {
-    storageStrategyRef.current = imageStorageStrategy ?? new S3ImageStorageStrategy();
-  }, [imageStorageStrategy]);
+  // Android-only: Always use local Android storage
+  const storageStrategyRef = useRef<LocalAndroidImageStorageStrategy>(new LocalAndroidImageStorageStrategy());
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const videoStreamRef = useRef<MediaStream | null>(null);
@@ -942,6 +931,9 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
   }, []);
 
   const completeScan = useCallback(async () => {
+      console.log('========================================');
+      console.log('[Android] completeScan() called - Starting inspection save process');
+      console.log('========================================');
       setStatus('processing');
       setShowOrientationTip(false); // Hide orientation tip during processing
     
@@ -955,101 +947,113 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     // Minimum images required for API submission
     const MINIMUM_IMAGES_REQUIRED = 4;
 
-    // Check if testing mode is enabled
-    const isTestingMode = localStorage.getItem(TESTING_MODE_KEY) === 'true';
+    // SDK Mode: Always save to database (testing mode or not)
+    // Testing mode is disabled for SDK - all inspections are saved to local database
+    console.log('[Android] SDK Mode: Proceeding with database save (testing mode disabled for SDK)...');
 
     try {
-      // In testing mode, skip actual uploads but still process the flow
-      if (isTestingMode) {
-        console.log('========================================');
-        console.log('[TESTING MODE] Skipping actual uploads, simulating success');
-        console.log('========================================');
-        
-        // Simulate success after a short delay
-        setTimeout(() => {
-          setSuccessData({
-            inspectionId: 99999,
-            registrationNumber: vehicleDetails?.regNumber || 'TEST123',
-            estimatedTime: '1-2 hours'
-          });
-          setShowSuccess(true);
-        }, 2000);
-        return;
-      }
-      
-      // Video recording disabled - set videoUrl to null
-      const videoUrl = null;
-      console.log('[Video] Video recording disabled - sending null video URL');
-      
       // Gather persisted image references in capture order
-      const imageUrls: { type: CaptureSegmentId; imageUrl: string }[] = CAPTURE_SEGMENTS.map((segment) => {
+      console.log('[Android] Gathering image references...');
+      console.log('[Android] storedImagesRef contents:', Object.keys(storedImagesRef.current));
+      const imageReferences = CAPTURE_SEGMENTS.map((segment) => {
         const storedReference = storedImagesRef.current[segment.id];
         if (!storedReference) return undefined;
         return {
-          type: segment.id,
-          imageUrl: storedReference.uri
+          segmentId: segment.id,
+          localPath: storedReference.uri // Android local file path
         };
-      }).filter((entry): entry is { type: CaptureSegmentId; imageUrl: string } => Boolean(entry));
+      }).filter((entry): entry is { segmentId: CaptureSegmentId; localPath: string } => Boolean(entry));
+      console.log('[Android] ✅ Gathered image references:', imageReferences.length, 'images');
 
-      // Logging: Count of uploaded images
-      const totalUploadedImages = Object.keys(storedImagesRef.current).length;
+      // Logging: Count of saved images
+      const totalSavedImages = Object.keys(storedImagesRef.current).length;
       console.log('========================================');
-      console.log('[API] Image Upload Summary:');
-      console.log(`[API] Total images uploaded to storage: ${totalUploadedImages}`);
-      console.log(`[API] Images ready for API call: ${imageUrls.length}`);
-      console.log('[API] Uploaded image details:', Object.entries(storedImagesRef.current).map(([id, ref]) => ({
+      console.log('[Android] Image Save Summary:');
+      console.log(`[Android] Total images saved locally: ${totalSavedImages}`);
+      console.log(`[Android] Images ready for inspection: ${imageReferences.length}`);
+      console.log('[Android] Image details:', Object.entries(storedImagesRef.current).map(([id, ref]) => ({
         segment: id,
-        uri: ref.uri
+        localPath: ref.uri
       })));
 
-      // Submit car inspection with video URL (minimum 4 images required, video can be null)
-      if (imageUrls.length >= MINIMUM_IMAGES_REQUIRED && vehicleDetails?.regNumber) {
-        const requestPayload = {
+      // Validate minimum images and registration number
+      console.log('[Android] Validating inspection data...');
+      console.log(`[Android] Image count: ${imageReferences.length}, Required: ${MINIMUM_IMAGES_REQUIRED}`);
+      console.log(`[Android] Registration number: ${vehicleDetails?.regNumber || 'MISSING'}`);
+      if (imageReferences.length < MINIMUM_IMAGES_REQUIRED || !vehicleDetails?.regNumber) {
+        console.error('[Validation] ❌ Validation failed:');
+        console.error(`[Validation] Images: ${imageReferences.length} (minimum required: ${MINIMUM_IMAGES_REQUIRED})`);
+        console.error(`[Validation] Registration: ${vehicleDetails?.regNumber || 'missing'}`);
+        throw new Error(`Missing images (${imageReferences.length}/${MINIMUM_IMAGES_REQUIRED} minimum), or registration number (${vehicleDetails?.regNumber})`);
+      }
+      console.log('[Android] ✅ Validation passed');
+
+      // Determine session type based on time
+      const sessionType = getSessionType();
+      console.log(`[Session] Determined session type: ${sessionType} (current time: ${new Date().toLocaleTimeString()})`);
+
+      // Get Android bridge
+      console.log('[Android] Checking for Android bridge...');
+      let androidBridge;
+      try {
+        androidBridge = getAndroidBridge();
+        console.log('[Android] ✅ Android bridge found:', androidBridge ? 'available' : 'not available');
+      } catch (error) {
+        console.error('[Android] ❌ Android bridge error:', error);
+        throw error;
+      }
+      
+      if (!androidBridge) {
+        console.error('[Android] ❌ Android bridge is null/undefined');
+        throw new Error('Android bridge is not available. This app requires Android WebView.');
+      }
+      
+      console.log('[Android] ✅ Android bridge is available, proceeding to save inspection...');
+
+      // Save pending inspection to Android app
+      console.log('========================================');
+      console.log('[Android] Saving pending inspection to Android app');
+      console.log('========================================');
+
+      const pendingInspectionData = {
           registrationNumber: vehicleDetails.regNumber,
-          images: imageUrls,
-          videoUrl: videoUrl,
+        sessionType: sessionType,
           clientName: "SNAPCABS",
-          sessionType: "MORNING"
-        };
+        images: imageReferences,
+        vehicleDetails: {
+          make: vehicleDetails.make,
+          model: vehicleDetails.model
+        }
+      };
+
+      console.log('[Android] Pending inspection data:', JSON.stringify(pendingInspectionData, null, 2));
+
+      try {
+        // Android bridge expects JSON string, not object
+        const inspectionDataJson = JSON.stringify(pendingInspectionData);
+        console.log('[Android] Calling savePendingInspection with JSON string...');
+        const localInspectionId = await androidBridge.savePendingInspection(inspectionDataJson);
 
         console.log('========================================');
-        console.log('[API] Submitting car inspection request:');
-        console.log(`[API] Registration Number: ${requestPayload.registrationNumber}`);
-        console.log(`[API] Number of images in request: ${requestPayload.images.length}`);
-        console.log(`[API] Video URL: ${requestPayload.videoUrl}`);
-        console.log('[API] Full request payload:', JSON.stringify(requestPayload, null, 2));
-        console.log('[API] Image details in request:', requestPayload.images.map(img => ({
-          type: img.type,
-          imageUrl: img.imageUrl
-        })));
-
-        const response = await submitCarInspection(requestPayload);
-
-        console.log('========================================');
-        console.log('[API] Response received:');
-        console.log('[API] Full response:', JSON.stringify(response, null, 2));
-        console.log(`[API] Success: ${response.success}`);
-        console.log(`[API] Inspection ID: ${response.inspectionId}`);
-        console.log(`[API] Status: ${response.status}`);
+        console.log('[Android] Inspection saved successfully');
+        console.log(`[Android] Local Inspection ID: ${localInspectionId}`);
+        console.log('[Android] Inspection will be uploaded when network is available');
         console.log('========================================');
 
-        // Send notification to admin
-        await sendPushoverNotification(`New inspection submitted: ${vehicleDetails.regNumber} - Vehicle: ${vehicleDetails.make} ${vehicleDetails.model}`);
-
+        // Show success with local ID
         setSuccessData({
-          inspectionId: response.inspectionId,
-          registrationNumber: response.registrationNumber,
-          estimatedTime: '1-2 hours' // Default since new API doesn't have this field
+          inspectionId: parseInt(localInspectionId.substring(0, 8), 16) || 0, // Convert UUID prefix to number for display
+          registrationNumber: vehicleDetails.regNumber,
+          estimatedTime: 'Will upload when online'
         });
         setShowSuccess(true);
-    } else {
-        console.error('[API] Validation failed:');
-        console.error(`[API] Images: ${imageUrls.length} (minimum required: ${MINIMUM_IMAGES_REQUIRED})`);
-        console.error(`[API] Video: null (disabled)`);
-        console.error(`[API] Registration: ${vehicleDetails?.regNumber || 'missing'}`);
-        throw new Error(`Missing images (${imageUrls.length}/${MINIMUM_IMAGES_REQUIRED} minimum), or registration number (${vehicleDetails?.regNumber})`);
+      } catch (error) {
+        console.error('[Android] Failed to save pending inspection:', error);
+        throw new Error(`Failed to save inspection to Android app: ${error instanceof Error ? error.message : String(error)}`);
       }
     } catch (error) {
+      console.error('[Android] completeScan error:', error);
+      console.error('[Android] Error details:', error instanceof Error ? error.stack : String(error));
       setStatus('error');
     }
   }, [vehicleDetails, stopVideoRecording]);
@@ -1078,7 +1082,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       console.log(`[Schedule] Scheduling capture for: ${segment.label} (${segment.id})`);
       setCurrentSegmentIndex(index);
       setSegmentStatuses((prev) => ({ ...prev, [segment.id]: 'capturing' }));
-      setCurrentInstruction(segment.instruction);
+      setCurrentInstruction({ text: segment.instruction, arrowDirection: 'none' });
 
       const movementDuration = index === 0 ? 2000 : 3000; // Reduced from 6000 to 3000 for faster flow
       const holdTimer = setTimeout(() => {
@@ -1092,8 +1096,8 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
 
           if (success) {
             console.log(`[Schedule] Segment ${index + 1} captured successfully`);
-            setCurrentInstruction(`${segment.label} captured!`);
-            setTimeout(() => setCurrentInstruction(''), 1500);
+            setCurrentInstruction({ text: `${segment.label} captured!`, arrowDirection: 'none' });
+            setTimeout(() => setCurrentInstruction({ text: '', arrowDirection: 'none' }), 1500);
 
             if (index === CAPTURE_SEGMENTS.length - 1) {
               console.log('[Schedule] Last segment captured, completing scan...');
@@ -1106,7 +1110,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
             }
           } else {
             console.error(`[Schedule] Segment ${index + 1} capture failed, but continuing anyway`);
-            setCurrentInstruction('Realign this part and tap Retry');
+            setCurrentInstruction({ text: 'Realign this part and tap Retry', arrowDirection: 'none' });
             // Continue to next segment even on failure for now
             if (index < CAPTURE_SEGMENTS.length - 1) {
               setTimeout(() => {
@@ -1162,7 +1166,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     setAlignmentScore(0);
     successCountRef.current = 0;
     previousStencilIndexRef.current = -1; // Reset to trigger new stencil detection
-    setCurrentInstruction('Position the front of the car in the frame'); // Initial instruction
+    setCurrentInstruction({ text: 'Position the front of the car in the frame', arrowDirection: 'none' }); // Initial instruction
 
     // Video recording disabled - only capturing images
     // await startVideoRecording();
@@ -1192,7 +1196,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     setSegmentStatuses(getInitialSegmentStatuses());
     
     // Reset new UI state
-    setCurrentInstruction('');
+    setCurrentInstruction({ text: '', arrowDirection: 'none' });
     setCameraBlurred(true);
     
     // Clear all timers
@@ -1402,18 +1406,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
 
   return (
     <div className="relative w-full h-screen bg-black overflow-hidden">
-      {/* Testing Mode Banner - Show at top if testing mode is ON */}
-      {testingMode && (
-        <div className="absolute top-0 left-0 right-0 z-50 bg-gradient-to-r from-orange-600 via-yellow-500 to-orange-600 p-3 text-center border-b-2 border-yellow-400">
-          <div className="flex items-center justify-center gap-2">
-            <TestTube className="w-5 h-5 text-white animate-pulse" />
-            <h3 className="text-sm md:text-base font-bold text-white">
-              ⚠️ TESTING MODE - Camera & Stencil features active, backend submission bypassed
-            </h3>
-            <TestTube className="w-5 h-5 text-white animate-pulse" />
-          </div>
-        </div>
-      )}
+      {/* Testing Mode Banner - Hidden in SDK mode (SDK always saves to database) */}
 
       {/* Camera Feed */}
       <div className="absolute inset-0">
@@ -1448,30 +1441,25 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
             >
               {/* Premium Stencil Container with Animated Glow */}
               <div className="relative w-full h-full flex items-center justify-center">
-                {/* Animated Glow Background */}
-                <motion.div
-                  animate={stencilVerified ? {
-                    opacity: [0.3, 0.5, 0.3],
-                    scale: [1, 1.05, 1]
-                  } : {
-                    opacity: [0.2, 0.4, 0.2],
-                    scale: [1, 1.02, 1]
-                  }}
-                  transition={{
-                    duration: 2,
-                    repeat: Infinity,
-                    ease: "easeInOut"
-                  }}
-                  className={`absolute inset-0 rounded-3xl blur-3xl ${
-                    stencilVerified 
-                      ? 'bg-gradient-to-br from-green-400/40 via-emerald-500/30 to-green-600/40' 
-                      : 'bg-gradient-to-br from-red-400/30 via-orange-500/20 to-red-600/30'
-                  }`}
-                  style={{
-                    filter: 'blur(40px)',
-                    transform: 'scale(1.2)'
-                  }}
-                />
+                {/* Animated Glow Background - Removed red glow, only show green when verified */}
+                {stencilVerified && (
+                  <motion.div
+                    animate={{
+                      opacity: [0.3, 0.5, 0.3],
+                      scale: [1, 1.05, 1]
+                    }}
+                    transition={{
+                      duration: 2,
+                      repeat: Infinity,
+                      ease: "easeInOut"
+                    }}
+                    className="absolute inset-0 rounded-3xl blur-3xl bg-gradient-to-br from-green-400/40 via-emerald-500/30 to-green-600/40"
+                    style={{
+                      filter: 'blur(40px)',
+                      transform: 'scale(1.2)'
+                    }}
+                  />
+                )}
                 
                 {/* Stencil Image with Premium Styling */}
                 <div className="relative z-10 w-full h-full flex items-center justify-center">
@@ -1563,78 +1551,6 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
                 )}
               </div>
               
-              {/* Premium Label Badge - Positioned above stencil */}
-              <div className="absolute -top-20 md:-top-24 left-1/2 -translate-x-1/2 z-20 w-full max-w-xs">
-                <motion.div
-                  initial={{ opacity: 0, y: -20, scale: 0.9 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
-                  className={`relative px-5 py-3 md:px-6 md:py-4 rounded-2xl backdrop-blur-2xl border-2 shadow-2xl ${
-                    stencilVerified
-                      ? 'bg-gradient-to-r from-green-500/25 via-emerald-500/20 to-green-500/25 border-green-400/70 text-green-50'
-                      : 'bg-gradient-to-r from-red-500/25 via-orange-500/20 to-red-500/25 border-red-400/70 text-red-50'
-                  }`}
-                  style={{
-                    boxShadow: stencilVerified
-                      ? '0 8px 32px rgba(34, 197, 94, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-                      : '0 8px 32px rgba(239, 68, 68, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-                  }}
-                >
-                  <p className="text-[10px] md:text-xs font-bold uppercase tracking-[0.15em] mb-1 opacity-90">
-                    {stencilVerified ? '✓ Captured' : 'Align This Part'}
-                  </p>
-                  <p className="text-base md:text-lg font-bold leading-tight">
-                    {stencilImages[currentStencilIndex].label}
-                  </p>
-                </motion.div>
-              </div>
-              
-              {/* Premium Edge Detection Feedback - Positioned below stencil */}
-              {!stencilVerified && (
-                <div className="absolute -bottom-20 md:-bottom-24 left-1/2 -translate-x-1/2 z-20 w-full max-w-xs">
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-black/70 backdrop-blur-2xl px-5 py-4 rounded-2xl border border-white/10 shadow-2xl"
-                    style={{
-                      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
-                    }}
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-xs font-semibold text-white/80 uppercase tracking-wider">Alignment</span>
-                      <span className="text-sm font-bold text-white">{Math.round(alignmentScore * 100)}%</span>
-                    </div>
-                    <div className="h-2 bg-gray-800/60 rounded-full overflow-hidden mb-3 backdrop-blur-sm">
-                      <motion.div
-                        animate={{ width: `${alignmentScore * 100}%` }}
-                        transition={{ duration: 0.4, ease: "easeOut" }}
-                        className={`h-full rounded-full transition-all duration-300 ${
-                          alignmentScore > 0.35
-                            ? 'bg-gradient-to-r from-green-400 via-emerald-400 to-green-500 shadow-lg shadow-green-500/50'
-                            : alignmentScore > 0.2
-                            ? 'bg-gradient-to-r from-yellow-400 via-orange-400 to-yellow-500 shadow-lg shadow-yellow-500/50'
-                            : 'bg-gradient-to-r from-red-400 via-orange-500 to-red-500 shadow-lg shadow-red-500/50'
-                        }`}
-                      />
-                    </div>
-                    <div className="flex items-center justify-center">
-                      <span className={`text-xs font-semibold ${
-                        alignmentScore > 0.35
-                          ? 'text-green-400'
-                          : alignmentScore > 0.2
-                          ? 'text-yellow-400'
-                          : 'text-red-400'
-                      }`}>
-                        {alignmentScore > 0.35
-                          ? 'Almost there! Keep steady...'
-                          : alignmentScore > 0.2
-                          ? 'Getting closer...'
-                          : 'Move closer to align the car'}
-                      </span>
-                    </div>
-                  </motion.div>
-                </div>
-              )}
             </motion.div>
           </div>
         )}
@@ -1763,168 +1679,177 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         <HelpCircle className="w-7 h-7" />
       </motion.button>
 
-      {/* Recording Timer */}
-      {status === 'recording' && (
-        <div className="absolute top-5 left-1/2 transform -translate-x-1/2 bg-red-500/20 backdrop-blur-lg text-white px-6 py-3 rounded-full z-50 border border-red-500/30">
-        <div className="flex items-center gap-3">
-            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-            <span className="font-bold">RECORDING</span>
-            <span className="font-mono">{recordingTime}s</span>
-          </div>
-        </div>
-      )}
-
-      {/* Progress Ring */}
-      {status === 'recording' && (
-      <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-50">
-          <div className="relative w-24 h-24">
-            <svg className="w-24 h-24 transform -rotate-90" viewBox="0 0 100 100">
-              <circle
-                cx="50"
-                cy="50"
-                r="45"
-                stroke="rgba(255,255,255,0.2)"
-                strokeWidth="8"
-                fill="none"
-              />
-              <circle
-                cx="50"
-                cy="50"
-                r="45"
-                stroke="currentColor"
-                strokeWidth="8"
-                fill="none"
-                strokeDasharray={`${2 * Math.PI * 45}`}
-                strokeDashoffset={`${2 * Math.PI * 45 * (1 - captureProgress)}`}
-                className="text-blue-400 transition-all duration-100"
-              />
-            </svg>
-            <div className="absolute inset-0 flex items-center justify-center">
-              {/* Percentage text removed - just the circular bar */}
-            </div>
-        </div>
-      </div>
-      )}
-
-      {/* Premium Instructions - Top Positioned, No Overlap */}
-      {status === 'recording' && currentInstruction && (
-        <div className="absolute top-4 md:top-6 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-md px-4">
-          <motion.div
-            key={`${currentStencilIndex}-${stencilVerified}`}
-            initial={{ opacity: 0, y: -20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -20, scale: 0.95 }}
-            transition={{ type: "spring", stiffness: 400, damping: 30 }}
-            className={`backdrop-blur-2xl rounded-3xl px-5 py-4 md:px-6 md:py-5 border-2 shadow-2xl ${
-              stencilVerified
-                ? 'bg-gradient-to-br from-green-500/25 via-emerald-500/20 to-green-500/25 border-green-400/70 text-green-50 shadow-green-500/30' 
-                : 'bg-gradient-to-br from-blue-500/25 via-cyan-500/20 to-blue-500/25 border-blue-400/70 text-blue-50 shadow-blue-500/30'
-            }`}
-            style={{
-              boxShadow: stencilVerified
-                ? '0 10px 40px rgba(34, 197, 94, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-                : '0 10px 40px rgba(59, 130, 246, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-            }}
-          >
-            <div className="text-center">
-              {/* Premium Animated Icon */}
+      {/* Premium Directional Arrow - Left Side - Shows for full 5 seconds */}
+      {status === 'recording' && showArrowAfterVerify && (
+        <motion.div
+          key={`arrow-${currentStencilIndex}`}
+          initial={{ opacity: 0, x: -30 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -30 }}
+          transition={{ type: "spring", stiffness: 400, damping: 30 }}
+          className="absolute left-4 md:left-6 top-1/2 transform -translate-y-1/2 z-50"
+        >
+          <div className="relative flex flex-col items-center justify-center">
+            {/* Arrow Container with smooth, elegant animation */}
+            <motion.div
+              animate={{
+                x: [-8, 8, -8], // Smooth, subtle horizontal movement
+              }}
+              transition={{
+                duration: 2,
+                repeat: Infinity,
+                ease: [0.4, 0, 0.6, 1] // Smooth ease-in-out curve
+              }}
+              className="relative"
+            >
+              {/* Premium Arrow Design */}
+              <div className="relative">
+                {/* Outer glow ring */}
+                <motion.div
+                  animate={{
+                    scale: [1, 1.1, 1],
+                    opacity: [0.6, 0.9, 0.6]
+                  }}
+                  transition={{
+                    duration: 2.5,
+                    repeat: Infinity,
+                    ease: "easeInOut"
+                  }}
+                  className="absolute inset-0 rounded-full blur-2xl"
+                  style={{
+                    width: '140px',
+                    height: '140px',
+                    margin: '-70px 0 0 -70px',
+                    background: 'radial-gradient(circle, rgba(59, 130, 246, 0.8) 0%, rgba(37, 99, 235, 0.4) 50%, transparent 100%)'
+                  }}
+                />
+                
+                {/* Arrow symbol - larger, bolder, more visible */}
+                <div 
+                  className="text-9xl md:text-[10rem] font-black leading-none"
+                  style={{
+                    color: '#3b82f6', // Bright blue for visibility
+                    textShadow: '0 0 40px rgba(59, 130, 246, 1), 0 0 80px rgba(59, 130, 246, 0.8), 0 0 120px rgba(59, 130, 246, 0.5), 0 6px 30px rgba(0, 0, 0, 0.9)',
+                    filter: 'drop-shadow(0 0 40px rgba(59, 130, 246, 1))',
+                    fontWeight: 900,
+                    WebkitTextStroke: '3px rgba(59, 130, 246, 0.9)',
+                    strokeWidth: 3
+                  }}
+                >
+                  ←
+                </div>
+              </div>
+              
+              {/* Move left text - redesigned */}
               <motion.div
-                animate={stencilVerified ? {
-                  scale: [1, 1.15, 1],
-                  rotate: [0, 5, -5, 0]
-                } : {
-                  x: currentInstruction.includes('Move') ? [-12, 12, -12] : [0, 0, 0],
-                  scale: [1, 1.08, 1]
+                animate={{
+                  opacity: [0.9, 1, 0.9]
                 }}
-                transition={{ 
-                  duration: stencilVerified ? 0.8 : currentInstruction.includes('Move') ? 1.2 : 1.8,
+                transition={{
+                  duration: 2,
                   repeat: Infinity,
                   ease: "easeInOut"
                 }}
-                className="mb-3 md:mb-4"
+                className="mt-4 text-center"
               >
-                {stencilVerified ? (
-                  <div className="relative w-14 h-14 md:w-16 md:h-16 mx-auto">
-                    <motion.div
-                      animate={{ scale: [1, 1.3, 1], opacity: [0.4, 0.6, 0.4] }}
-                      transition={{ duration: 1.5, repeat: Infinity }}
-                      className="absolute inset-0 bg-green-400 rounded-full blur-xl"
-                    />
-                    <div className="relative w-full h-full bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center border-3 border-white/40 shadow-xl">
-                      <motion.div
-                        animate={{ scale: [1, 1.15, 1] }}
-                        transition={{ duration: 0.6, repeat: Infinity }}
-                        className="text-2xl md:text-3xl text-white font-bold"
-                      >
-                        ✓
-                      </motion.div>
-                    </div>
-                  </div>
-                ) : currentInstruction.includes('Move') ? (
-                  <div className="relative w-14 h-14 md:w-16 md:h-16 mx-auto">
-                    <motion.div
-                      animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }}
-                      transition={{ duration: 1.5, repeat: Infinity }}
-                      className="absolute inset-0 bg-blue-400 rounded-full blur-xl"
-                    />
-                    <div className="relative w-full h-full bg-gradient-to-br from-blue-500 to-cyan-600 rounded-full flex items-center justify-center border-3 border-white/40 shadow-xl">
-                      <motion.div
-                        animate={{ x: [-10, 10, -10] }}
-                        transition={{ duration: 1, repeat: Infinity, ease: "easeInOut" }}
-                        className="text-2xl md:text-3xl text-white font-bold"
-                      >
-                        →
-                      </motion.div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="relative w-14 h-14 md:w-16 md:h-16 mx-auto">
-                    <motion.div
-                      animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }}
-                      transition={{ duration: 1.5, repeat: Infinity }}
-                      className="absolute inset-0 bg-blue-400 rounded-full blur-xl"
-                    />
-                    <div className="relative w-full h-full bg-gradient-to-br from-blue-500 to-cyan-600 rounded-full flex items-center justify-center border-3 border-white/40 shadow-xl">
-                      <motion.div
-                        animate={{ scale: [1, 1.2, 1], opacity: [0.8, 1, 0.8] }}
-                        transition={{ duration: 1.5, repeat: Infinity }}
-                        className="w-7 h-7 md:w-8 md:h-8 border-3 border-white rounded-full"
-                      />
-                    </div>
-                  </div>
-                )}
-              </motion.div>
-              
-              {/* Premium Instruction Text */}
-              <motion.h3 
-                className={`font-bold text-base md:text-lg lg:text-xl mb-2 leading-tight ${
-                  stencilVerified 
-                    ? 'text-green-100' 
-                    : 'text-blue-100'
-                }`}
-                style={{
-                  textShadow: '0 2px 8px rgba(0, 0, 0, 0.3)'
-                }}
-              >
-                {currentInstruction}
-              </motion.h3>
-              
-              {/* Premium Progress indicator for alignment */}
-              {!stencilVerified && (
-                <div className="mt-3 md:mt-4">
-                  <div className="h-1.5 bg-white/10 rounded-full overflow-hidden backdrop-blur-sm">
-                    <motion.div
-                      animate={{ width: `${alignmentScore * 100}%` }}
-                      transition={{ duration: 0.4, ease: "easeOut" }}
-                      className="h-full bg-gradient-to-r from-blue-400 via-cyan-400 to-blue-500 rounded-full shadow-lg"
-                      style={{
-                        boxShadow: '0 0 10px rgba(59, 130, 246, 0.6)'
-                      }}
-                    />
-                  </div>
+                <div 
+                  className="text-white font-extrabold text-xl md:text-2xl tracking-wide"
+                  style={{
+                    textShadow: '0 4px 20px rgba(0, 0, 0, 1), 0 2px 10px rgba(59, 130, 246, 0.8), 0 0 30px rgba(59, 130, 246, 0.6)',
+                    fontWeight: 800,
+                    letterSpacing: '0.05em'
+                  }}
+                >
+                  Move left
                 </div>
-              )}
+              </motion.div>
+            </motion.div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Alignment Feedback - Top Center */}
+      {status === 'recording' && !stencilVerified && (
+        <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-50 text-center px-4 w-full max-w-md">
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-black/70 backdrop-blur-2xl px-4 py-3 rounded-xl border border-white/10 shadow-2xl"
+            style={{
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+            }}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-white/80 uppercase tracking-wider">Alignment</span>
+              <span className="text-sm font-bold text-white">{Math.round(alignmentScore * 100)}%</span>
             </div>
+            <div className="h-1.5 bg-gray-800/60 rounded-full overflow-hidden mb-2 backdrop-blur-sm">
+              <motion.div
+                animate={{ width: `${alignmentScore * 100}%` }}
+                transition={{ duration: 0.4, ease: "easeOut" }}
+                className={`h-full rounded-full transition-all duration-300 ${
+                  alignmentScore > 0.35
+                    ? 'bg-gradient-to-r from-green-400 via-emerald-400 to-green-500 shadow-lg shadow-green-500/50'
+                    : alignmentScore > 0.2
+                    ? 'bg-gradient-to-r from-yellow-400 via-orange-400 to-yellow-500 shadow-lg shadow-yellow-500/50'
+                    : 'bg-gradient-to-r from-red-400 via-orange-500 to-red-500 shadow-lg shadow-red-500/50'
+                }`}
+              />
+            </div>
+            <div className="flex items-center justify-center">
+              <span className={`text-xs font-semibold ${
+                alignmentScore > 0.35
+                  ? 'text-green-400'
+                  : alignmentScore > 0.2
+                  ? 'text-yellow-400'
+                  : 'text-red-400'
+              }`}>
+                {alignmentScore > 0.35
+                  ? 'Almost there! Keep steady...'
+                  : alignmentScore > 0.2
+                  ? 'Getting closer...'
+                  : 'Move closer to align the car'}
+              </span>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Single Clean Instruction Box - Below Alignment Box */}
+      {status === 'recording' && currentInstruction.text && (
+        <div className="absolute top-32 md:top-36 left-1/2 transform -translate-x-1/2 z-50 text-center px-4 w-full max-w-md">
+          <motion.div
+            key={`instruction-${currentStencilIndex}`}
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.3 }}
+            className="backdrop-blur-2xl rounded-2xl px-6 py-4 md:px-8 md:py-5 border-2 border-blue-400/80 bg-blue-500/30 shadow-2xl"
+            style={{
+              boxShadow: '0 10px 40px rgba(59, 130, 246, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3)'
+            }}
+          >
+            {/* Success Checkmark (only when verified) */}
+            {stencilVerified && (
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: [1, 1.15, 1] }}
+                transition={{ duration: 0.6, repeat: Infinity }}
+                className="mb-2"
+              >
+                <div className="text-3xl md:text-4xl text-green-300 font-bold">✓</div>
+              </motion.div>
+            )}
+            
+            {/* Instruction Text - Clean, no inline arrows */}
+            <h3 
+              className="font-bold text-base md:text-lg leading-tight text-white"
+              style={{
+                textShadow: '0 2px 10px rgba(0, 0, 0, 0.8)'
+              }}
+            >
+              {currentInstruction.text.replace(/←|→|↓/g, '').trim()}
+            </h3>
           </motion.div>
         </div>
       )}
@@ -2060,7 +1985,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
                   </div>
                   <div className="flex items-start gap-3">
                     <span className="bg-blue-500 text-white rounded-full w-5 h-5 md:w-6 md:h-6 flex items-center justify-center text-xs md:text-sm font-bold flex-shrink-0 mt-0.5">4</span>
-                    <span>Complete all 4 views for full analysis</span>
+                    <span>Complete all 10 views for full analysis</span>
                   </div>
                 </div>
               </div>
