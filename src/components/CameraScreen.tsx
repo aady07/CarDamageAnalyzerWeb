@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Webcam from 'react-webcam';
-import { ArrowLeft, AlertTriangle, HelpCircle, Brain, Play, TestTube } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, HelpCircle, Brain, Play } from 'lucide-react';
 import { getVideoPresignedUploadUrl, uploadVideoToS3 } from '../services/api/videoUploadService';
 import { submitCarInspection } from '../services/api/carInspectionService';
 import SuccessScreen from './SuccessScreen';
@@ -133,16 +133,7 @@ const getInitialSegmentStatuses = (): Record<CaptureSegmentId, SegmentStatus> =>
   return statuses;
 };
 
-const TESTING_MODE_KEY = 'camera_testing_bypass_enabled';
-
 const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete, onBack, imageStorageStrategy }) => {
-  // Check for testing mode bypass
-  const [testingMode, setTestingMode] = useState<boolean>(false);
-  
-  useEffect(() => {
-    const saved = localStorage.getItem(TESTING_MODE_KEY);
-    setTestingMode(saved === 'true');
-  }, []);
 
   const [status, setStatus] = useState<ScanStatus>('idle');
   const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
@@ -955,30 +946,9 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     // Minimum images required for API submission
     const MINIMUM_IMAGES_REQUIRED = 4;
 
-    // Check if testing mode is enabled
-    const isTestingMode = localStorage.getItem(TESTING_MODE_KEY) === 'true';
-
     try {
-      // In testing mode, skip actual uploads but still process the flow
-      if (isTestingMode) {
-        console.log('========================================');
-        console.log('[TESTING MODE] Skipping actual uploads, simulating success');
-        console.log('========================================');
-        
-        // Simulate success after a short delay
-        setTimeout(() => {
-          setSuccessData({
-            inspectionId: 99999,
-            registrationNumber: vehicleDetails?.regNumber || 'TEST123',
-            estimatedTime: '1-2 hours'
-          });
-          setShowSuccess(true);
-        }, 2000);
-        return;
-      }
-      
-      // Video recording disabled - set videoUrl to null
-      const videoUrl = null;
+      // Video recording disabled - set videoUrl to empty string
+      const videoUrl = '';
       console.log('[Video] Video recording disabled - sending null video URL');
       
       // Gather persisted image references in capture order
@@ -1252,8 +1222,6 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     );
   }
 
-  // Testing Mode - Show banner but keep camera screen visible
-  // Testing mode only bypasses backend submission, not the camera/stencil features
 
   // Show permission request screen
   if (showPermissionRequest) {
@@ -1402,19 +1370,6 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
 
   return (
     <div className="relative w-full h-screen bg-black overflow-hidden">
-      {/* Testing Mode Banner - Show at top if testing mode is ON */}
-      {testingMode && (
-        <div className="absolute top-0 left-0 right-0 z-50 bg-gradient-to-r from-orange-600 via-yellow-500 to-orange-600 p-3 text-center border-b-2 border-yellow-400">
-          <div className="flex items-center justify-center gap-2">
-            <TestTube className="w-5 h-5 text-white animate-pulse" />
-            <h3 className="text-sm md:text-base font-bold text-white">
-              ⚠️ TESTING MODE - Camera & Stencil features active, backend submission bypassed
-            </h3>
-            <TestTube className="w-5 h-5 text-white animate-pulse" />
-          </div>
-        </div>
-      )}
-
       {/* Camera Feed */}
       <div className="absolute inset-0">
         <Webcam

@@ -1,18 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Shield, FileText, CheckCircle, XCircle, Clock, Edit3, Eye, Download, AlertCircle, Loader, Filter, Search, SortAsc, SortDesc, User } from 'lucide-react';
+import { ArrowLeft, Shield, FileText, CheckCircle, XCircle, Clock, Eye, AlertCircle, Loader, Search, SortAsc, SortDesc, User } from 'lucide-react';
 import { 
   AdminInspection, 
   AdminInspectionDetails,
   AdminInspectionsResponse,
   ApprovalRequest,
-  ApprovalResponse,
   getPendingInspections,
   getAllInspections,
   getInspectionDetails,
   approveInspection,
-  rejectInspection,
-  viewInspectionPDF
+  rejectInspection
 } from '../services/api/adminService';
 import ReportManager from './ReportManager';
 
@@ -22,8 +20,9 @@ interface AdminDashboardProps {
 
 type ViewMode = 'pending' | 'all';
 type DetailView = 'list' | 'details' | 'report';
-type SortField = 'createdAt' | 'completedAt' | 'registrationNumber' | 'approvalStatus';
+type SortField = 'createdAt' | 'completedAt' | 'registrationNumber' | 'approvalStatus' | 'lastUpdatedAt';
 type SortOrder = 'asc' | 'desc';
+type SessionFilter = 'all' | 'morning-only' | 'evening-only' | 'both-complete' | 'pending';
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const [inspections, setInspections] = useState<AdminInspection[]>([]);
@@ -36,20 +35,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const [rejecting, setRejecting] = useState<number | null>(null);
   const [adminNotes, setAdminNotes] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortField, setSortField] = useState<SortField>('createdAt');
+  const [sortField, setSortField] = useState<SortField>('lastUpdatedAt');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-  const [userFilter, setUserFilter] = useState<string>('all');
+  const [clientFilter, setClientFilter] = useState<string>('all');
+  const [sessionFilter, setSessionFilter] = useState<SessionFilter>('all');
 
-  // User name mapping
-  const getUserName = (userId: string) => {
-    const userMap: { [key: string]: string } = {
-      'b1739d4a-d071-70d8-9d08-e19234dab677': 'Snap-E-Cabs',
-      '31a31dfa-80b1-700b-5808-7855335d5284': 'adarsh',
-      '91d37dda-70c1-703e-ebce-00384cdd600d': 'rachit',
-      'user-cognito-id': 'John Doe'
-    };
-    
-    return userMap[userId] || userId;
+  // Get unique client names from inspections
+  const getUniqueClients = (): string[] => {
+    const clients = new Set<string>();
+    inspections.forEach(inspection => {
+      if (inspection.clientName) {
+        clients.add(inspection.clientName);
+      }
+    });
+    return Array.from(clients).sort();
   };
 
   useEffect(() => {
@@ -96,7 +95,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         adminNotes: adminNotes
       };
       
-      const response: ApprovalResponse = await approveInspection(inspectionId, request);
+      await approveInspection(inspectionId, request);
       
       // Update local state
       setInspections(prev => prev.map(inspection => 
@@ -132,7 +131,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         adminNotes: adminNotes
       };
       
-      const response: ApprovalResponse = await rejectInspection(inspectionId, request);
+      await rejectInspection(inspectionId, request);
       
       // Update local state
       setInspections(prev => prev.map(inspection => 
@@ -190,25 +189,76 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     });
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 0
-    }).format(amount);
+  const getSessionBadge = (session: { status: 'done' | 'pending'; imageCount: number } | undefined, sessionName: 'MORNING' | 'EVENING') => {
+    if (!session) {
+      return (
+        <span className="px-2 py-1 rounded text-xs font-semibold bg-gray-500/20 text-gray-400 border border-gray-500/30">
+          {sessionName} ⏳ 0
+        </span>
+      );
+    }
+    
+    if (session.status === 'done') {
+      return (
+        <span className="px-2 py-1 rounded text-xs font-semibold bg-green-500/20 text-green-400 border border-green-500/30">
+          {sessionName} ✓ {session.imageCount}
+        </span>
+      );
+    } else {
+      return (
+        <span className="px-2 py-1 rounded text-xs font-semibold bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+          {sessionName} ⏳ {session.imageCount}
+        </span>
+      );
+    }
+  };
+
+  const getOverallStatus = (inspection: AdminInspection): string => {
+    const breakdown = inspection.sessionBreakdown;
+    if (!breakdown) return 'Unknown';
+    
+    const morningDone = breakdown.morning?.status === 'done';
+    const eveningDone = breakdown.evening?.status === 'done';
+    
+    if (morningDone && eveningDone) return 'Completed';
+    if (morningDone || eveningDone) return 'Processing';
+    return 'Pending';
   };
 
   const filteredInspections = inspections
     .filter(inspection => {
-      // Search filter (registration number or user name)
+      // Search filter (registration number or client name)
       const matchesSearch = inspection.registrationNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (inspection.userId && getUserName(inspection.userId).toLowerCase().includes(searchTerm.toLowerCase()));
+        (inspection.clientName && inspection.clientName.toLowerCase().includes(searchTerm.toLowerCase()));
       
-      // User filter
-      const matchesUser = userFilter === 'all' || 
-        (inspection.userId && getUserName(inspection.userId) === userFilter);
+      // Client filter
+      const matchesClient = clientFilter === 'all' || 
+        (inspection.clientName && inspection.clientName === clientFilter);
       
-      return matchesSearch && matchesUser;
+      // Session filter
+      const breakdown = inspection.sessionBreakdown;
+      let matchesSession = true;
+      if (sessionFilter !== 'all' && breakdown) {
+        const morningDone = breakdown.morning?.status === 'done';
+        const eveningDone = breakdown.evening?.status === 'done';
+        
+        switch (sessionFilter) {
+          case 'morning-only':
+            matchesSession = morningDone && !eveningDone;
+            break;
+          case 'evening-only':
+            matchesSession = !morningDone && eveningDone;
+            break;
+          case 'both-complete':
+            matchesSession = morningDone && eveningDone;
+            break;
+          case 'pending':
+            matchesSession = !morningDone || !eveningDone;
+            break;
+        }
+      }
+      
+      return matchesSearch && matchesClient && matchesSession;
     })
     .sort((a, b) => {
       let aValue: any, bValue: any;
@@ -229,6 +279,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         case 'approvalStatus':
           aValue = a.approvalStatus.toLowerCase();
           bValue = b.approvalStatus.toLowerCase();
+          break;
+        case 'lastUpdatedAt':
+          aValue = a.lastUpdatedAt ? new Date(a.lastUpdatedAt).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+          bValue = b.lastUpdatedAt ? new Date(b.lastUpdatedAt).getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
           break;
         default:
           return 0;
@@ -573,23 +627,38 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search by registration or user name..."
+                placeholder="Search by registration or client name..."
                 className="w-full bg-white/10 border border-white/20 rounded-lg md:rounded-xl pl-10 md:pl-10 pr-4 py-2 md:py-3 text-white placeholder-gray-400 focus:border-blue-400 focus:outline-none text-sm md:text-base"
               />
             </div>
           </div>
 
-          {/* User Filter */}
+          {/* Client Filter */}
           <div className="flex bg-white/10 rounded-lg md:rounded-xl p-1">
             <select
-              value={userFilter}
-              onChange={(e) => setUserFilter(e.target.value)}
+              value={clientFilter}
+              onChange={(e) => setClientFilter(e.target.value)}
               className="bg-transparent text-white text-xs md:text-sm px-2 py-1 border-none outline-none"
             >
-              <option value="all">All Users</option>
-              <option value="Snap-E-Cabs">Snap-E-Cabs</option>
-              <option value="adarsh">adarsh</option>
-              <option value="rachit">rachit</option>
+              <option value="all">All Clients</option>
+              {getUniqueClients().map(client => (
+                <option key={client} value={client}>{client}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Session Filter */}
+          <div className="flex bg-white/10 rounded-lg md:rounded-xl p-1">
+            <select
+              value={sessionFilter}
+              onChange={(e) => setSessionFilter(e.target.value as SessionFilter)}
+              className="bg-transparent text-white text-xs md:text-sm px-2 py-1 border-none outline-none"
+            >
+              <option value="all">All Sessions</option>
+              <option value="morning-only">MORNING only</option>
+              <option value="evening-only">EVENING only</option>
+              <option value="both-complete">Both complete</option>
+              <option value="pending">Pending</option>
             </select>
           </div>
 
@@ -603,6 +672,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
               >
                 <option value="createdAt">Created Date</option>
                 <option value="completedAt">Completed Date</option>
+                <option value="lastUpdatedAt">Last Updated</option>
                 <option value="registrationNumber">Registration</option>
                 <option value="approvalStatus">Status</option>
               </select>
@@ -677,20 +747,40 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                         <h3 className="text-lg md:text-xl font-bold text-white">{inspection.registrationNumber}</h3>
                         <div className="flex items-center gap-2">
                           <p className="text-gray-400 text-xs md:text-sm">Inspection #{inspection.id}</p>
-                          <div className="flex items-center gap-1">
-                            <User className="w-3 h-3 text-gray-400" />
-                            <p className="text-gray-400 text-xs md:text-sm">
-                              {inspection.userId ? getUserName(inspection.userId) : 'Unknown User'}
-                            </p>
-                          </div>
+                          {inspection.clientName && (
+                            <div className="flex items-center gap-1">
+                              <User className="w-3 h-3 text-gray-400" />
+                              <p className="text-gray-400 text-xs md:text-sm">
+                                {inspection.clientName}
+                              </p>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
-                    <div className={`px-2 md:px-3 py-1 rounded-full border flex items-center gap-2 ${getStatusColor(inspection.approvalStatus)}`}>
-                      {getStatusIcon(inspection.approvalStatus)}
-                      <span className="font-semibold capitalize text-xs md:text-sm">{inspection.approvalStatus}</span>
+                    <div className="flex flex-col md:flex-row items-start md:items-center gap-2">
+                      <div className={`px-2 md:px-3 py-1 rounded-full border flex items-center gap-2 ${getStatusColor(inspection.approvalStatus)}`}>
+                        {getStatusIcon(inspection.approvalStatus)}
+                        <span className="font-semibold capitalize text-xs md:text-sm">{inspection.approvalStatus}</span>
+                      </div>
+                      <div className={`px-2 md:px-3 py-1 rounded-full border flex items-center gap-2 bg-blue-500/20 border-blue-500/30 text-blue-400`}>
+                        <span className="font-semibold text-xs md:text-sm">{getOverallStatus(inspection)}</span>
+                      </div>
                     </div>
                   </div>
+
+                  {/* Session Badges */}
+                  {inspection.sessionBreakdown && (
+                    <div className="mb-3 md:mb-4 flex flex-wrap items-center gap-2">
+                      {getSessionBadge(inspection.sessionBreakdown.morning, 'MORNING')}
+                      {getSessionBadge(inspection.sessionBreakdown.evening, 'EVENING')}
+                      {inspection.sessionBreakdown.morning && inspection.sessionBreakdown.evening && (
+                        <span className="text-gray-400 text-xs">
+                          {inspection.sessionBreakdown.morning.imageCount} MORNING, {inspection.sessionBreakdown.evening.imageCount} EVENING
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 mb-3 md:mb-4">
                     <div className="flex items-center gap-2 md:gap-3">
@@ -701,22 +791,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                       </div>
                     </div>
                     
-                    {inspection.totalDamagePercentage !== null && (
+                    {inspection.completedAt && (
                       <div className="flex items-center gap-2 md:gap-3">
-                        <AlertCircle className="w-4 h-4 md:w-5 md:h-5 text-gray-400" />
+                        <CheckCircle className="w-4 h-4 md:w-5 md:h-5 text-gray-400" />
                         <div>
-                          <p className="text-gray-400 text-xs md:text-sm">Damage</p>
-                          <p className="text-white font-semibold text-xs md:text-sm">{inspection.totalDamagePercentage}%</p>
+                          <p className="text-gray-400 text-xs md:text-sm">Completed</p>
+                          <p className="text-white font-semibold text-xs md:text-sm">{formatDate(inspection.completedAt)}</p>
                         </div>
                       </div>
                     )}
-
-                    {inspection.estimatedCost !== null && (
+                    
+                    {inspection.lastUpdatedAt && (
                       <div className="flex items-center gap-2 md:gap-3">
-                        <Download className="w-4 h-4 md:w-5 md:h-5 text-gray-400" />
+                        <Clock className="w-4 h-4 md:w-5 md:h-5 text-gray-400" />
                         <div>
-                          <p className="text-gray-400 text-xs md:text-sm">Cost</p>
-                          <p className="text-white font-semibold text-xs md:text-sm">{formatCurrency(inspection.estimatedCost)}</p>
+                          <p className="text-gray-400 text-xs md:text-sm">Last Updated</p>
+                          <p className="text-white font-semibold text-xs md:text-sm">{formatDate(inspection.lastUpdatedAt)}</p>
                         </div>
                       </div>
                     )}

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, FileText, Download, Calendar, DollarSign, Percent, Car, Clock, CheckCircle, AlertCircle, Loader, TrendingUp } from 'lucide-react';
+import { ArrowLeft, FileText, Download, Calendar, DollarSign, Percent, Car, Clock, CheckCircle, AlertCircle, Loader, TrendingUp, Bell } from 'lucide-react';
 import { getUserInspections, downloadInspectionPDF, checkPDFAvailability, CarInspection } from '../services/api/inspectionService';
 
 interface DashboardProps {
@@ -12,21 +12,74 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const [downloadingPdf, setDownloadingPdf] = useState<number | null>(null);
+  const [notifications, setNotifications] = useState<string[]>([]);
+  const lastUpdatedRef = useRef<Map<number, string>>(new Map());
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     fetchInspections();
+    
+    // Start polling every 45 seconds (between 30-60 as specified)
+    pollingIntervalRef.current = setInterval(() => {
+      fetchInspections(true); // silent refresh
+    }, 45000);
+
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
   }, []);
 
-  const fetchInspections = async () => {
+  const fetchInspections = async (silent: boolean = false) => {
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      }
       setError('');
       const response = await getUserInspections();
+      
+      // Detect changes by comparing lastUpdatedAt
+      const newNotifications: string[] = [];
+      response.inspections.forEach((inspection) => {
+        const previousLastUpdated = lastUpdatedRef.current.get(inspection.id);
+        const currentLastUpdated = inspection.lastUpdatedAt;
+        
+        if (previousLastUpdated && currentLastUpdated && previousLastUpdated !== currentLastUpdated) {
+          // Check if evening session was added
+          const previousInspection = inspections.find(i => i.id === inspection.id);
+          const previousEveningSubmitted = previousInspection?.sessions?.evening?.submitted;
+          const currentEveningSubmitted = inspection.sessions?.evening?.submitted;
+          
+          if (!previousEveningSubmitted && currentEveningSubmitted) {
+            newNotifications.push(`EVENING session added for ${inspection.registrationNumber}`);
+          } else if (inspection.lastUpdatedAt) {
+            newNotifications.push(`Inspection ${inspection.registrationNumber} updated`);
+          }
+        }
+        
+        if (currentLastUpdated) {
+          lastUpdatedRef.current.set(inspection.id, currentLastUpdated);
+        }
+      });
+      
+      if (newNotifications.length > 0) {
+        setNotifications(prev => [...newNotifications, ...prev].slice(0, 5)); // Keep last 5 notifications
+        // Auto-remove notifications after 5 seconds
+        setTimeout(() => {
+          setNotifications(prev => prev.slice(1));
+        }, 5000);
+      }
+      
       setInspections(response.inspections);
     } catch (err) {
-      setError('Failed to load inspections. Please try again.');
+      if (!silent) {
+        setError('Failed to load inspections. Please try again.');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -142,6 +195,50 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
     }).format(amount);
   };
 
+  const getSessionBadge = (session: { submitted: boolean; imageCount: number } | undefined, sessionName: 'MORNING' | 'EVENING') => {
+    if (!session) {
+      return (
+        <span className="px-2 py-1 rounded text-xs font-semibold bg-gray-500/20 text-gray-400 border border-gray-500/30">
+          {sessionName} ⏳
+        </span>
+      );
+    }
+    
+    if (session.submitted) {
+      return (
+        <span className="px-2 py-1 rounded text-xs font-semibold bg-green-500/20 text-green-400 border border-green-500/30">
+          {sessionName} ✓
+        </span>
+      );
+    } else {
+      return (
+        <span className="px-2 py-1 rounded text-xs font-semibold bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+          {sessionName} ⏳
+        </span>
+      );
+    }
+  };
+
+  const getOverallStatus = (inspection: CarInspection): string => {
+    const sessions = inspection.sessions;
+    if (!sessions) return 'Unknown';
+    
+    const morningSubmitted = sessions.morning?.submitted;
+    const eveningSubmitted = sessions.evening?.submitted;
+    
+    if (morningSubmitted && eveningSubmitted) return 'Completed';
+    if (morningSubmitted || eveningSubmitted) return 'Processing';
+    return 'Pending';
+  };
+
+  const hasRecentUpdate = (inspection: CarInspection): boolean => {
+    if (!inspection.lastUpdatedAt) return false;
+    const lastUpdated = new Date(inspection.lastUpdatedAt);
+    const now = new Date();
+    const diffMinutes = (now.getTime() - lastUpdated.getTime()) / (1000 * 60);
+    return diffMinutes < 5; // Updated in last 5 minutes
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
@@ -195,6 +292,26 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
 
   return (
     <div className="min-h-screen bg-black">
+      {/* Notifications */}
+      {notifications.length > 0 && (
+        <div className="fixed top-4 right-4 z-50 space-y-2 max-w-md">
+          <AnimatePresence>
+            {notifications.map((notification, index) => (
+              <motion.div
+                key={index}
+                initial={{ opacity: 0, x: 100 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 100 }}
+                className="bg-blue-500/20 border border-blue-500/30 text-blue-400 px-4 py-3 rounded-xl flex items-center gap-3 backdrop-blur-lg"
+              >
+                <Bell className="w-5 h-5 flex-shrink-0" />
+                <span className="text-sm font-semibold">{notification}</span>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
+
       {/* Header */}
       <div className="px-4 md:px-8 pt-4 md:pt-8 pb-4">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -251,11 +368,34 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
                         <Car className="w-5 h-5 md:w-6 md:h-6 text-blue-400" />
                       </div>
                       <div>
-                        <h3 className="text-lg md:text-xl font-bold text-white">{inspection.registrationNumber}</h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-lg md:text-xl font-bold text-white">{inspection.registrationNumber}</h3>
+                          {hasRecentUpdate(inspection) && (
+                            <span className="px-2 py-1 rounded text-xs font-semibold bg-green-500/20 text-green-400 border border-green-500/30 animate-pulse">
+                              Updated
+                            </span>
+                          )}
+                        </div>
                         <p className="text-gray-400 text-xs md:text-sm">Inspection #{inspection.id}</p>
                       </div>
                     </div>
+                    <div className={`px-2 md:px-3 py-1 rounded-full border flex items-center gap-2 bg-blue-500/20 border-blue-500/30 text-blue-400`}>
+                      <span className="font-semibold text-xs md:text-sm">{getOverallStatus(inspection)}</span>
+                    </div>
                   </div>
+
+                  {/* Session Badges */}
+                  {inspection.sessions && (
+                    <div className="mb-4 flex flex-wrap items-center gap-2">
+                      {getSessionBadge(inspection.sessions.morning, 'MORNING')}
+                      {getSessionBadge(inspection.sessions.evening, 'EVENING')}
+                      {inspection.sessions.morning && inspection.sessions.evening && (
+                        <span className="text-gray-400 text-xs">
+                          MORNING: {inspection.sessions.morning.imageCount} {inspection.sessions.morning.submitted ? '✓' : '⏳'}, EVENING: {inspection.sessions.evening.imageCount} {inspection.sessions.evening.submitted ? '✓' : '⏳'}
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 mb-4 md:mb-6">
                     <div className="flex items-center gap-2 md:gap-3">
@@ -272,6 +412,16 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
                         <div>
                           <p className="text-gray-400 text-xs md:text-sm">Completed</p>
                           <p className="text-white font-semibold text-sm md:text-base">{formatDate(inspection.completedAt)}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {inspection.lastUpdatedAt && (
+                      <div className="flex items-center gap-2 md:gap-3">
+                        <Clock className="w-4 h-4 md:w-5 md:h-5 text-gray-400" />
+                        <div>
+                          <p className="text-gray-400 text-xs md:text-sm">Last Updated</p>
+                          <p className="text-white font-semibold text-sm md:text-base">{formatDate(inspection.lastUpdatedAt)}</p>
                         </div>
                       </div>
                     )}

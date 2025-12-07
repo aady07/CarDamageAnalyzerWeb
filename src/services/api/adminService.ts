@@ -7,6 +7,18 @@ export interface AdminCheckResponse {
   userId: string;
 }
 
+// Session Breakdown Types
+export interface SessionBreakdown {
+  status: 'done' | 'pending';
+  imageCount: number;
+  completedAt?: string;
+}
+
+export interface InspectionSessionBreakdown {
+  morning: SessionBreakdown;
+  evening: SessionBreakdown;
+}
+
 // Inspection Types
 export interface AdminInspection {
   id: number;
@@ -14,6 +26,7 @@ export interface AdminInspection {
   approvalStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
   pdfReady: boolean;
   createdAt: string;
+  completedAt?: string | null;
   totalDamagePercentage: number | null;
   estimatedCost: number | null;
   isEdited: boolean;
@@ -21,6 +34,9 @@ export interface AdminInspection {
   lastEditedBy: string | null;
   lastEditedAt: string | null;
   userId: string;
+  clientName?: string;
+  sessionBreakdown?: InspectionSessionBreakdown;
+  lastUpdatedAt?: string;
 }
 
 export interface AdminInspectionDetails extends AdminInspection {
@@ -28,6 +44,8 @@ export interface AdminInspectionDetails extends AdminInspection {
   completedAt: string | null;
   originalPdfPath: string | null;
   editedPdfPath: string | null;
+  sessionBreakdown?: InspectionSessionBreakdown;
+  lastUpdatedAt?: string;
 }
 
 export interface AdminInspectionsResponse {
@@ -138,5 +156,97 @@ export async function uploadModifiedReport(inspectionId: number, file: File, edi
       'Content-Type': 'multipart/form-data'
     }
   });
+  return data;
+}
+
+// Client Management Types
+export interface Client {
+  clientName: string;
+  headUsersCount: number;
+  driverUsersCount: number;
+  totalUsersCount: number;
+}
+
+export interface ClientsResponse {
+  success: boolean;
+  clients: Client[];
+  count: number;
+}
+
+export interface ClientUsersResponse {
+  success: boolean;
+  clientName: string;
+  headUsers: string[];
+  driverUsers: string[];
+}
+
+export interface AddUserRequest {
+  userId: string;
+}
+
+export interface AddUserResponse {
+  success: boolean;
+  message: string;
+}
+
+// Admin Management Types
+export interface AdminUser {
+  userId: string;
+  userRole: string;
+  isAdmin: boolean;
+  userTier: string;
+  createdAt: string;
+}
+
+export interface AdminsResponse {
+  success: boolean;
+  admins: AdminUser[];
+  count: number;
+}
+
+// Client Management Functions
+export async function getAllClients(): Promise<ClientsResponse> {
+  const { data } = await apiClient.get<ClientsResponse>('/api/admin/clients');
+  return data;
+}
+
+export async function getClientUsers(clientName: string): Promise<ClientUsersResponse> {
+  const { data } = await apiClient.get<ClientUsersResponse>(`/api/admin/clients/${clientName}/users`);
+  return data;
+}
+
+export async function addHeadUser(clientName: string, userId: string): Promise<AddUserResponse> {
+  const { data } = await apiClient.post<AddUserResponse>(`/api/admin/clients/${clientName}/head-users`, { userId });
+  return data;
+}
+
+export async function addDriverUser(clientName: string, userId: string): Promise<AddUserResponse> {
+  const { data } = await apiClient.post<AddUserResponse>(`/api/admin/clients/${clientName}/driver-users`, { userId });
+  return data;
+}
+
+export async function removeHeadUser(clientName: string, userId: string): Promise<AddUserResponse> {
+  const { data } = await apiClient.post<AddUserResponse>(`/api/admin/clients/${clientName}/head-users/${userId}/remove`);
+  return data;
+}
+
+export async function removeDriverUser(clientName: string, userId: string): Promise<AddUserResponse> {
+  const { data } = await apiClient.post<AddUserResponse>(`/api/admin/clients/${clientName}/driver-users/${userId}/remove`);
+  return data;
+}
+
+// Admin Management Functions
+export async function getAllAdmins(): Promise<AdminsResponse> {
+  const { data } = await apiClient.get<AdminsResponse>('/api/admin/admins');
+  return data;
+}
+
+export async function makeUserAdmin(userId: string): Promise<AddUserResponse> {
+  const { data } = await apiClient.post<AddUserResponse>('/api/admin/admins', { userId });
+  return data;
+}
+
+export async function removeAdminAccess(userId: string): Promise<AddUserResponse> {
+  const { data } = await apiClient.post<AddUserResponse>(`/api/admin/admins/${userId}/remove`);
   return data;
 }

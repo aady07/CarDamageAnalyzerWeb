@@ -4,15 +4,15 @@ import LandingScreen from './LandingScreen';
 import RulesScreen from './RulesScreen';
 import CameraScreen from './CameraScreen';
 import Dashboard from './Dashboard';
-import AdminDashboard from './AdminDashboard';
-import StatsDashboard from './StatsDashboard';
+import AdminPanel from './admin/AdminPanel';
+import ClientDashboard from './ClientDashboard';
 import Login from './Login';
-import StencilDemoScreen from './StencilDemoScreen';
 import { useCognitoAuth } from '../hooks/useCognitoAuth.js';
 import { checkAdminStatus } from '../services/api/adminService';
+import { checkClientAccess } from '../services/api/clientService';
 import logo from '../assets/images/logo.svg';
 
-export type ScreenType = 'landing' | 'rules' | 'camera' | 'dashboard' | 'admin' | 'stencilDemo' | 'stats';
+export type ScreenType = 'landing' | 'rules' | 'camera' | 'dashboard' | 'admin' | 'clientDashboard';
 
 interface AppContentProps {
   isAuthed: boolean | null;
@@ -25,6 +25,7 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('landing');
   const [vehicleDetails, setVehicleDetails] = useState<{ make: string; model: string; regNumber: string } | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [hasClientAccess, setHasClientAccess] = useState<boolean | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const { isAuthenticated } = useCognitoAuth();
 
@@ -61,9 +62,24 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
     }
   }, [isAuthed]);
 
+  // Check client access when user is authenticated
+  useEffect(() => {
+    if (isAuthed === true) {
+      checkClientAccess('SNAPCABS')
+        .then(response => {
+          setHasClientAccess(response.hasAccess);
+        })
+        .catch(error => {
+          setHasClientAccess(false);
+        });
+    } else {
+      setHasClientAccess(null);
+    }
+  }, [isAuthed]);
+
   const navigateTo = async (screen: ScreenType) => {
-    // Protect camera, dashboard, stats, and admin screens with auth
-    if (screen === 'camera' || screen === 'dashboard' || screen === 'stats' || screen === 'admin') {
+    // Protect camera, dashboard, admin, and clientDashboard screens with auth
+    if (screen === 'camera' || screen === 'dashboard' || screen === 'admin' || screen === 'clientDashboard') {
       const ok = await isAuthenticated();
       if (!ok) {
         // Handle auth requirement - this should be handled by the parent App component
@@ -73,6 +89,11 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
     
     // Protect admin screen with admin check
     if (screen === 'admin' && isAdmin !== true) {
+      return;
+    }
+
+    // Protect clientDashboard screen with client access check
+    if (screen === 'clientDashboard' && hasClientAccess !== true) {
       return;
     }
     
@@ -109,7 +130,8 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
                 {/* Dropdown Menu */}
                 <div className={`absolute right-0 top-full mt-2 w-48 bg-white/10 backdrop-blur-xl rounded-xl border border-white/20 shadow-2xl transition-all duration-300 z-50 ${isDropdownOpen ? 'opacity-100 visible' : 'opacity-0 invisible'}`}>
                   <div className="py-2">
-                    {currentScreen !== 'dashboard' && (
+                    {/* UNCOMMENT_DASHBOARD_NAV - Search for this to uncomment the Dashboard navigation menu item */}
+                    {/* {currentScreen !== 'dashboard' && (
                       <motion.button
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
@@ -125,13 +147,13 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
                         </svg>
                         Dashboard
                       </motion.button>
-                    )}
-                    {currentScreen !== 'stats' && (
+                    )} */}
+                    {hasClientAccess === true && currentScreen !== 'clientDashboard' && (
                       <motion.button
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
                         onClick={() => {
-                          navigateTo('stats');
+                          navigateTo('clientDashboard');
                           setIsDropdownOpen(false);
                         }}
                         className="w-full text-left px-4 py-3 text-white hover:bg-white/10 transition-colors duration-200 flex items-center gap-3"
@@ -139,28 +161,7 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                         </svg>
-                        Stats Dashboard
-                      </motion.button>
-                    )}
-                    {currentScreen !== 'stencilDemo' && (
-                      <motion.button
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => {
-                          navigateTo('stencilDemo');
-                          setIsDropdownOpen(false);
-                        }}
-                        className="w-full text-left px-4 py-3 text-white hover:bg-white/10 transition-colors duration-200 flex items-center gap-3"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 11H5m14 0-4-4m4 4-4 4"
-                          />
-                        </svg>
-                        Stencil Demo
+                        SnapCabs Dashboard
                       </motion.button>
                     )}
                     {isAdmin === true && currentScreen !== 'admin' && (
@@ -267,18 +268,6 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
           </motion.div>
         )}
 
-        {currentScreen === 'stencilDemo' && (
-          <motion.div
-            key="stencilDemo"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5 }}
-          >
-            <StencilDemoScreen onBack={() => navigateTo('landing')} />
-          </motion.div>
-        )}
-
         {currentScreen === 'dashboard' && (
           <motion.div
             key="dashboard"
@@ -291,18 +280,6 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
           </motion.div>
         )}
 
-        {currentScreen === 'stats' && (
-          <motion.div
-            key="stats"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5 }}
-          >
-            <StatsDashboard onBack={() => navigateTo('landing')} />
-          </motion.div>
-        )}
-
         {currentScreen === 'admin' && (
           <motion.div
             key="admin"
@@ -311,7 +288,19 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <AdminDashboard onBack={() => navigateTo('landing')} />
+            <AdminPanel onBack={() => navigateTo('landing')} />
+          </motion.div>
+        )}
+
+        {currentScreen === 'clientDashboard' && (
+          <motion.div
+            key="clientDashboard"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <ClientDashboard onBack={() => navigateTo('landing')} clientName="SNAPCABS" />
           </motion.div>
         )}
 

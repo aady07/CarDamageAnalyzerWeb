@@ -1,5 +1,16 @@
 import { apiClient } from './authenticatedApiService';
 
+export interface InspectionSession {
+  submitted: boolean;
+  imageCount: number;
+  submittedAt?: string;
+}
+
+export interface InspectionSessions {
+  morning: InspectionSession;
+  evening: InspectionSession;
+}
+
 export interface CarInspection {
   id: number;
   registrationNumber: string;
@@ -16,6 +27,8 @@ export interface CarInspection {
   videoUploadedAt?: string | null;
   message?: string;
   adminNotes?: string;
+  sessions?: InspectionSessions;
+  lastUpdatedAt?: string;
 }
 
 export interface UserInspectionsResponse {
