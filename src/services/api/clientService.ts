@@ -5,6 +5,7 @@ export interface ClientAccessResponse {
   hasAccess: boolean;
   isClientHead: boolean;
   clientName: string;
+  clientDisplayName?: string;
   userId: string;
 }
 
@@ -48,6 +49,7 @@ export interface DashboardSummary {
 export interface DashboardResponse {
   success: boolean;
   clientName: string;
+  clientDisplayName?: string;
   date: string;
   summary: DashboardSummary;
   cars: DashboardCar[];

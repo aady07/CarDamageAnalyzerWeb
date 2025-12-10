@@ -15,6 +15,7 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const [hasAccess, setHasAccess] = useState<boolean | null>(null);
+  const [clientDisplayName, setClientDisplayName] = useState<string>('');
   const [notifications, setNotifications] = useState<string[]>([]);
   const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null);
   const [verifiedPdfStatus, setVerifiedPdfStatus] = useState<Map<string, { isAvailable: boolean; isPending: boolean }>>(new Map());
@@ -27,6 +28,7 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
       try {
         const response = await checkClientAccess(clientName);
         setHasAccess(response.hasAccess);
+        setClientDisplayName(response.clientDisplayName || response.clientName);
         if (!response.hasAccess) {
           setError('You don\'t have permission to view this dashboard. Only client head users can access.');
         }
@@ -135,6 +137,11 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
       }
       
       setDashboardData(data);
+      
+      // Update client display name from response if available
+      if (data.clientDisplayName) {
+        setClientDisplayName(data.clientDisplayName);
+      }
       
       // Verify PDF availability for all cars that show as pdfReady
       if (data.cars && data.cars.length > 0) {
@@ -408,30 +415,30 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
       )}
 
       {/* Header */}
-      <div className="px-4 md:px-8 pt-4 md:pt-8 pb-4">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex items-center gap-3 md:gap-4">
+      <div className="px-4 md:px-6 pt-2 md:pt-4 pb-3 md:pb-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4">
+          <div className="flex items-center gap-3">
             <motion.button
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               onClick={onBack}
-              className="w-10 h-10 md:w-12 md:h-12 bg-white/10 backdrop-blur-lg rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all duration-200"
+              className="w-10 h-10 bg-white/10 backdrop-blur-lg rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all duration-200 flex-shrink-0"
             >
-              <ArrowLeft className="w-5 h-5 md:w-7 md:h-7" />
+              <ArrowLeft className="w-5 h-5" />
             </motion.button>
-            <div>
-              <h1 className="text-xl md:text-3xl font-bold text-white flex items-center gap-2 md:gap-3">
-                <Users className="w-6 h-6 md:w-8 md:h-8 text-blue-400" />
-                <span>{clientName} Dashboard</span>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-lg md:text-2xl font-bold text-white flex items-center gap-2">
+                <Users className="w-5 h-5 md:w-6 md:h-6 text-blue-400 flex-shrink-0" />
+                <span className="truncate">{clientDisplayName || clientName} Dashboard</span>
               </h1>
-              <p className="text-gray-400 text-sm md:text-base">View all inspections from your drivers and head users</p>
+              <p className="text-gray-400 text-xs md:text-sm">View all inspections from your drivers and head users</p>
             </div>
           </div>
-          <div className="text-left md:text-right">
+          <div className="text-left md:text-right flex-shrink-0">
             {dashboardData && (
               <>
-                <p className="text-white font-semibold text-base md:text-lg">{dashboardData.summary.totalCars} Cars</p>
-                <p className="text-gray-400 text-xs md:text-sm">{formatDateForAPI(selectedDate)}</p>
+                <p className="text-white font-semibold text-sm md:text-base">{dashboardData.summary.totalCars} Cars</p>
+                <p className="text-gray-400 text-xs">{formatDateForAPI(selectedDate)}</p>
               </>
             )}
           </div>
@@ -439,14 +446,14 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
       </div>
 
       {/* Date Picker */}
-      <div className="px-4 md:px-8 pb-4 md:pb-6">
+      <div className="px-4 md:px-6 pb-3 md:pb-4">
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col md:flex-row items-start md:items-center gap-3 md:gap-4"
+          className="flex flex-col md:flex-row items-start md:items-center gap-2 md:gap-3"
         >
-          <label className="text-white font-semibold text-sm md:text-base flex items-center gap-2">
-            <Calendar className="w-4 h-4 md:w-5 md:h-5 text-blue-400" />
+          <label className="text-white font-semibold text-sm flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-blue-400" />
             Select Date:
           </label>
           <div className="relative">
@@ -470,7 +477,7 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                 }
               }}
               max={maxDate}
-              className="date-picker-custom bg-white/10 backdrop-blur-lg border border-white/20 rounded-xl px-4 py-3 text-white focus:border-blue-400 focus:ring-2 focus:ring-blue-400/50 focus:outline-none text-sm md:text-base font-medium cursor-pointer hover:bg-white/15 transition-all duration-200 min-w-[200px] md:min-w-[250px]"
+              className="date-picker-custom bg-white/10 backdrop-blur-lg border border-white/20 rounded-xl px-4 py-2.5 text-white focus:border-blue-400 focus:ring-2 focus:ring-blue-400/50 focus:outline-none text-sm font-medium cursor-pointer hover:bg-white/15 transition-all duration-200 min-w-[200px]"
             />
           </div>
         </motion.div>
@@ -602,7 +609,13 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                         >
                           <td className="px-4 py-4 md:px-6 md:py-5 text-white font-semibold text-sm md:text-base">{car.carNumber}</td>
                           <td className="px-4 py-4 md:px-6 md:py-5 text-gray-300 text-sm md:text-base font-mono">#{car.inspectionId}</td>
-                          <td className="px-4 py-4 md:px-6 md:py-5 text-gray-300 text-sm md:text-base">{car.createdBy}</td>
+                          <td className="px-4 py-4 md:px-6 md:py-5">
+                            <div className="max-w-[150px] md:max-w-[200px]">
+                              <span className="text-gray-300 text-sm md:text-base truncate block" title={car.createdBy}>
+                                {car.createdBy.length > 20 ? `${car.createdBy.substring(0, 20)}...` : car.createdBy}
+                              </span>
+                            </div>
+                          </td>
                           <td className="px-4 py-4 md:px-6 md:py-5 align-top">
                             <div className="min-w-[110px]">
                               {getSessionBadge(car.sessions.morning, 'MORNING')}

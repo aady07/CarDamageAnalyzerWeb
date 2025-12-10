@@ -748,20 +748,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                         <div className="flex items-center gap-2">
                           <p className="text-gray-400 text-xs md:text-sm">Inspection #{inspection.id}</p>
                           {inspection.clientName && (
-                            <div className="flex items-center gap-1">
-                              <User className="w-3 h-3 text-gray-400" />
-                              <p className="text-gray-400 text-xs md:text-sm">
+                          <div className="flex items-center gap-1">
+                            <User className="w-3 h-3 text-gray-400" />
+                            <p className="text-gray-400 text-xs md:text-sm">
                                 {inspection.clientName}
-                              </p>
-                            </div>
+                            </p>
+                          </div>
                           )}
                         </div>
                       </div>
                     </div>
                     <div className="flex flex-col md:flex-row items-start md:items-center gap-2">
-                      <div className={`px-2 md:px-3 py-1 rounded-full border flex items-center gap-2 ${getStatusColor(inspection.approvalStatus)}`}>
-                        {getStatusIcon(inspection.approvalStatus)}
-                        <span className="font-semibold capitalize text-xs md:text-sm">{inspection.approvalStatus}</span>
+                    <div className={`px-2 md:px-3 py-1 rounded-full border flex items-center gap-2 ${getStatusColor(inspection.approvalStatus)}`}>
+                      {getStatusIcon(inspection.approvalStatus)}
+                      <span className="font-semibold capitalize text-xs md:text-sm">{inspection.approvalStatus}</span>
                       </div>
                       <div className={`px-2 md:px-3 py-1 rounded-full border flex items-center gap-2 bg-blue-500/20 border-blue-500/30 text-blue-400`}>
                         <span className="font-semibold text-xs md:text-sm">{getOverallStatus(inspection)}</span>
@@ -800,7 +800,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                         </div>
                       </div>
                     )}
-                    
+
                     {inspection.lastUpdatedAt && (
                       <div className="flex items-center gap-2 md:gap-3">
                         <Clock className="w-4 h-4 md:w-5 md:h-5 text-gray-400" />

@@ -34,7 +34,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
   const fetchInspections = async (silent: boolean = false) => {
     try {
       if (!silent) {
-        setLoading(true);
+      setLoading(true);
       }
       setError('');
       const response = await getUserInspections();
@@ -74,11 +74,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
       setInspections(response.inspections);
     } catch (err) {
       if (!silent) {
-        setError('Failed to load inspections. Please try again.');
+      setError('Failed to load inspections. Please try again.');
       }
     } finally {
       if (!silent) {
-        setLoading(false);
+      setLoading(false);
       }
     }
   };
@@ -369,7 +369,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <h3 className="text-lg md:text-xl font-bold text-white">{inspection.registrationNumber}</h3>
+                        <h3 className="text-lg md:text-xl font-bold text-white">{inspection.registrationNumber}</h3>
                           {hasRecentUpdate(inspection) && (
                             <span className="px-2 py-1 rounded text-xs font-semibold bg-green-500/20 text-green-400 border border-green-500/30 animate-pulse">
                               Updated
