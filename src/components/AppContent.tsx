@@ -6,13 +6,14 @@ import CameraScreen from './CameraScreen';
 import Dashboard from './Dashboard';
 import AdminPanel from './admin/AdminPanel';
 import ClientDashboard from './ClientDashboard';
+import ManualInspectionDashboard from './ManualInspectionDashboard';
 import Login from './Login';
 import { useCognitoAuth } from '../hooks/useCognitoAuth.js';
 import { checkAdminStatus } from '../services/api/adminService';
 import { checkClientAccess } from '../services/api/clientService';
 import logo from '../assets/images/logo.svg';
 
-export type ScreenType = 'landing' | 'rules' | 'camera' | 'dashboard' | 'admin' | 'clientDashboard';
+export type ScreenType = 'landing' | 'rules' | 'camera' | 'dashboard' | 'admin' | 'clientDashboard' | 'refuxDashboard' | 'manualInspection';
 
 interface AppContentProps {
   isAuthed: boolean | null;
@@ -26,6 +27,7 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
   const [vehicleDetails, setVehicleDetails] = useState<{ make: string; model: string; regNumber: string } | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [hasClientAccess, setHasClientAccess] = useState<boolean | null>(null);
+  const [hasRefuxAccess, setHasRefuxAccess] = useState<boolean | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const { isAuthenticated } = useCognitoAuth();
 
@@ -65,6 +67,7 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
   // Check client access when user is authenticated
   useEffect(() => {
     if (isAuthed === true) {
+      // Check SNAPCABS access
       checkClientAccess('SNAPCABS')
         .then(response => {
           setHasClientAccess(response.hasAccess);
@@ -76,14 +79,24 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
         .catch(error => {
           setHasClientAccess(false);
         });
+      
+      // Check REFUX access
+      checkClientAccess('REFUX')
+        .then(response => {
+          setHasRefuxAccess(response.hasAccess);
+        })
+        .catch(error => {
+          setHasRefuxAccess(false);
+        });
     } else {
       setHasClientAccess(null);
+      setHasRefuxAccess(null);
     }
   }, [isAuthed]);
 
   const navigateTo = async (screen: ScreenType) => {
-    // Protect camera, dashboard, admin, and clientDashboard screens with auth
-    if (screen === 'camera' || screen === 'dashboard' || screen === 'admin' || screen === 'clientDashboard') {
+    // Protect camera, dashboard, admin, clientDashboard, refuxDashboard, and manualInspection screens with auth
+    if (screen === 'camera' || screen === 'dashboard' || screen === 'admin' || screen === 'clientDashboard' || screen === 'refuxDashboard' || screen === 'manualInspection') {
       const ok = await isAuthenticated();
       if (!ok) {
         // Handle auth requirement - this should be handled by the parent App component
@@ -100,6 +113,16 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
     if (screen === 'clientDashboard' && hasClientAccess !== true) {
       return;
     }
+
+    // Protect refuxDashboard screen with REFUX access check
+    if (screen === 'refuxDashboard' && hasRefuxAccess !== true) {
+      return;
+    }
+
+    // Protect manualInspection screen with admin check
+    if (screen === 'manualInspection' && isAdmin !== true) {
+      return;
+    }
     
     setCurrentScreen(screen);
   };
@@ -107,7 +130,7 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
   return (
     <div className="min-h-screen gradient-bg overflow-hidden">
       {/* Navbar (hidden on camera screen to maximize space) */}
-      {currentScreen !== 'camera' && (
+      {currentScreen !== 'camera' && currentScreen !== 'manualInspection' && (
         <nav className="px-4 md:px-8 py-1 md:py-3">
           <div className="flex items-center justify-between">
             {/* Logo - Left Side */}
@@ -167,6 +190,39 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
                         </svg>
                         Snap-E CABS Dashboard
                         </motion.button>
+                    )}
+                    {hasRefuxAccess === true && currentScreen !== 'refuxDashboard' && (
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => {
+                          navigateTo('refuxDashboard');
+                          setIsDropdownOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-3 text-white hover:bg-white/10 transition-colors duration-200 flex items-center gap-3"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        REFUX Dashboard
+                        </motion.button>
+                    )}
+                    {isAdmin === true && currentScreen !== 'manualInspection' && (
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => {
+                          navigateTo('manualInspection');
+                          setIsDropdownOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-3 text-white hover:bg-white/10 transition-colors duration-200 flex items-center gap-3"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        Inspector Dashboard
+                      </motion.button>
                     )}
                     {isAdmin === true && currentScreen !== 'admin' && (
                       <motion.button
@@ -305,6 +361,30 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
             transition={{ duration: 0.5 }}
           >
             <ClientDashboard onBack={() => navigateTo('landing')} clientName="SNAPCABS" />
+          </motion.div>
+        )}
+
+        {currentScreen === 'refuxDashboard' && (
+          <motion.div
+            key="refuxDashboard"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <ClientDashboard onBack={() => navigateTo('landing')} clientName="REFUX" />
+          </motion.div>
+        )}
+
+        {currentScreen === 'manualInspection' && (
+          <motion.div
+            key="manualInspection"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <ManualInspectionDashboard onBack={() => navigateTo('landing')} />
           </motion.div>
         )}
 

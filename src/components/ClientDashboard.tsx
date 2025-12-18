@@ -502,7 +502,7 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
       {/* Summary Cards */}
       {dashboardData && dashboardData.summary && (
         <div className="px-4 md:px-8 pb-6 md:pb-8">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 md:gap-6 mb-6 md:mb-8">
+          <div className={`grid ${clientName === 'REFUX' ? 'grid-cols-2 md:grid-cols-2' : 'grid-cols-2 md:grid-cols-5'} gap-4 md:gap-6 mb-6 md:mb-8`}>
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -515,57 +515,61 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
               <p className="text-white font-bold text-xl md:text-3xl">{dashboardData.summary.totalCars}</p>
             </motion.div>
 
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="bg-white/10 backdrop-blur-lg rounded-xl md:rounded-2xl p-4 md:p-6 border border-white/20 text-center"
-            >
-              <div className="w-12 h-12 md:w-16 md:h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
-                <CheckCircle className="w-6 h-6 md:w-8 md:h-8 text-green-400" />
-              </div>
-              <h3 className="text-gray-400 text-xs md:text-sm mb-1 md:mb-2">Morning Done</h3>
-              <p className="text-white font-bold text-xl md:text-3xl">{dashboardData.summary.morningDone}</p>
-            </motion.div>
+            {clientName !== 'REFUX' && (
+              <>
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1 }}
+                  className="bg-white/10 backdrop-blur-lg rounded-xl md:rounded-2xl p-4 md:p-6 border border-white/20 text-center"
+                >
+                  <div className="w-12 h-12 md:w-16 md:h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
+                    <CheckCircle className="w-6 h-6 md:w-8 md:h-8 text-green-400" />
+                  </div>
+                  <h3 className="text-gray-400 text-xs md:text-sm mb-1 md:mb-2">Morning Done</h3>
+                  <p className="text-white font-bold text-xl md:text-3xl">{dashboardData.summary.morningDone}</p>
+                </motion.div>
 
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="bg-white/10 backdrop-blur-lg rounded-xl md:rounded-2xl p-4 md:p-6 border border-white/20 text-center"
-            >
-              <div className="w-12 h-12 md:w-16 md:h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
-                <CheckCircle className="w-6 h-6 md:w-8 md:h-8 text-green-400" />
-              </div>
-              <h3 className="text-gray-400 text-xs md:text-sm mb-1 md:mb-2">Evening Done</h3>
-              <p className="text-white font-bold text-xl md:text-3xl">{dashboardData.summary.eveningDone}</p>
-            </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                  className="bg-white/10 backdrop-blur-lg rounded-xl md:rounded-2xl p-4 md:p-6 border border-white/20 text-center"
+                >
+                  <div className="w-12 h-12 md:w-16 md:h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
+                    <CheckCircle className="w-6 h-6 md:w-8 md:h-8 text-green-400" />
+                  </div>
+                  <h3 className="text-gray-400 text-xs md:text-sm mb-1 md:mb-2">Evening Done</h3>
+                  <p className="text-white font-bold text-xl md:text-3xl">{dashboardData.summary.eveningDone}</p>
+                </motion.div>
 
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="bg-white/10 backdrop-blur-lg rounded-xl md:rounded-2xl p-4 md:p-6 border border-white/20 text-center"
-            >
-              <div className="w-12 h-12 md:w-16 md:h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
-                <CheckCircle className="w-6 h-6 md:w-8 md:h-8 text-green-400" />
-              </div>
-              <h3 className="text-gray-400 text-xs md:text-sm mb-1 md:mb-2">Both Complete</h3>
-              <p className="text-white font-bold text-xl md:text-3xl">{dashboardData.summary.bothDone}</p>
-            </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="bg-white/10 backdrop-blur-lg rounded-xl md:rounded-2xl p-4 md:p-6 border border-white/20 text-center"
+                >
+                  <div className="w-12 h-12 md:w-16 md:h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
+                    <CheckCircle className="w-6 h-6 md:w-8 md:h-8 text-green-400" />
+                  </div>
+                  <h3 className="text-gray-400 text-xs md:text-sm mb-1 md:mb-2">Both Complete</h3>
+                  <p className="text-white font-bold text-xl md:text-3xl">{dashboardData.summary.bothDone}</p>
+                </motion.div>
 
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
-              className="bg-white/10 backdrop-blur-lg rounded-xl md:rounded-2xl p-4 md:p-6 border border-white/20 text-center"
-            >
-              <div className="w-12 h-12 md:w-16 md:h-16 bg-yellow-500/20 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
-                <Clock className="w-6 h-6 md:w-8 md:h-8 text-yellow-400" />
-              </div>
-              <h3 className="text-gray-400 text-xs md:text-sm mb-1 md:mb-2">Pending</h3>
-              <p className="text-white font-bold text-xl md:text-3xl">{dashboardData.summary.pending}</p>
-            </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4 }}
+                  className="bg-white/10 backdrop-blur-lg rounded-xl md:rounded-2xl p-4 md:p-6 border border-white/20 text-center"
+                >
+                  <div className="w-12 h-12 md:w-16 md:h-16 bg-yellow-500/20 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
+                    <Clock className="w-6 h-6 md:w-8 md:h-8 text-yellow-400" />
+                  </div>
+                  <h3 className="text-gray-400 text-xs md:text-sm mb-1 md:mb-2">Pending</h3>
+                  <p className="text-white font-bold text-xl md:text-3xl">{dashboardData.summary.pending}</p>
+                </motion.div>
+              </>
+            )}
           </div>
 
           {/* Cars Table */}
@@ -590,8 +594,12 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                       <th className="px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider">Car Number</th>
                       <th className="px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider">Inspection ID</th>
                       <th className="px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider">Created By</th>
-                      <th className="px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider">MORNING</th>
-                      <th className="px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider">EVENING</th>
+                      {clientName !== 'REFUX' && (
+                        <>
+                          <th className="px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider">MORNING</th>
+                          <th className="px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider">EVENING</th>
+                        </>
+                      )}
                       <th className="px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider">Status</th>
                       <th className="px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider">PDF</th>
                     </tr>
@@ -616,16 +624,20 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                               </span>
                             </div>
                           </td>
-                          <td className="px-4 py-4 md:px-6 md:py-5 align-top">
-                            <div className="min-w-[110px]">
-                              {getSessionBadge(car.sessions.morning, 'MORNING')}
-                            </div>
-                          </td>
-                          <td className="px-4 py-4 md:px-6 md:py-5 align-top">
-                            <div className="min-w-[110px]">
-                              {getSessionBadge(car.sessions.evening, 'EVENING')}
-                            </div>
-                          </td>
+                          {clientName !== 'REFUX' && (
+                            <>
+                              <td className="px-4 py-4 md:px-6 md:py-5 align-top">
+                                <div className="min-w-[110px]">
+                                  {getSessionBadge(car.sessions.morning, 'MORNING')}
+                                </div>
+                              </td>
+                              <td className="px-4 py-4 md:px-6 md:py-5 align-top">
+                                <div className="min-w-[110px]">
+                                  {getSessionBadge(car.sessions.evening, 'EVENING')}
+                                </div>
+                              </td>
+                            </>
+                          )}
                           <td className="px-4 py-4 md:px-6 md:py-5">
                             <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold border capitalize ${getStatusColor(car.status)}`}>
                               {car.status}
