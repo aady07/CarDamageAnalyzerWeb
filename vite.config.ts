@@ -16,6 +16,19 @@ export default defineConfig(({ command, mode }) => {
     plugins: [react()],
     define: {
       global: 'globalThis',
+      'process.env': {},
+    },
+    optimizeDeps: {
+      include: ['@tensorflow/tfjs', '@tensorflow/tfjs-backend-cpu'],
+      esbuildOptions: {
+        plugins: [],
+        define: {
+          global: 'globalThis',
+        },
+      },
+    },
+    resolve: {
+      dedupe: ['@tensorflow/tfjs-core'],
     },
     server: {
       port: 3000,
@@ -30,7 +43,18 @@ export default defineConfig(({ command, mode }) => {
     },
     build: {
       outDir: 'dist',
-      sourcemap: true
+      sourcemap: true,
+      commonjsOptions: {
+        transformMixedEsModules: true,
+      },
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'tfjs-core': ['@tensorflow/tfjs'],
+          },
+        },
+        external: [],
+      },
     }
   }
 })

@@ -30,7 +30,9 @@ const AppContent: React.FC = () => {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <LandingScreen onStartAnalysis={() => navigateTo('rules')} />
+            <LandingScreen 
+              onStartAnalysis={() => navigateTo('rules')}
+            />
           </motion.div>
         )}
 
