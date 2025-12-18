@@ -7,10 +7,11 @@ import {
   FileText, 
   Menu, 
   X,
-  ChevronRight 
+  ChevronRight,
+  Eye
 } from 'lucide-react';
 
-export type AdminPanelView = 'dashboard' | 'clients' | 'admins' | 'inspections';
+export type AdminPanelView = 'dashboard' | 'clients' | 'admins' | 'inspections' | 'inspection-dashboard';
 
 interface AdminPanelLayoutProps {
   currentView: AdminPanelView;
@@ -32,6 +33,7 @@ const AdminPanelLayout: React.FC<AdminPanelLayoutProps> = ({
     { id: 'clients' as AdminPanelView, label: 'Client Management', icon: Users },
     { id: 'admins' as AdminPanelView, label: 'Admin Management', icon: Shield },
     { id: 'inspections' as AdminPanelView, label: 'Inspection Management', icon: FileText },
+    { id: 'inspection-dashboard' as AdminPanelView, label: 'Inspection Dashboard', icon: Eye },
   ];
 
   return (

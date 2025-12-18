@@ -18,7 +18,15 @@ import {
   Upload,
   Edit2,
   Loader,
-  Download
+  Download,
+  Lock,
+  Search,
+  SortAsc,
+  SortDesc,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  Eye
 } from 'lucide-react';
 import {
   InspectionImage,
@@ -30,7 +38,13 @@ import {
   updateAIDamageData,
   replaceAIImage,
   uploadIncrementImage,
-  updateImageComments
+  updateImageComments,
+  checkDashboardAccess,
+  lockImage,
+  unlockImage,
+  getLockStatus,
+  sendLockHeartbeat,
+  PaginationInfo
 } from '../services/api/manualInspectionService';
 import { cognitoService } from '../services/cognitoService';
 import { getPresignedUploadUrl, uploadFileToS3 } from '../services/api/uploadService';
@@ -220,11 +234,11 @@ interface ManualInspectionDashboardProps {
 }
 
 type ViewMode = 'grid' | 'review';
-type DrawingTool = 'rectangle' | 'circle' | 'arrow' | 'text' | 'none';
+type DrawingTool = 'brush' | 'rectangle' | 'circle' | 'arrow' | 'text' | 'none';
 
 interface Drawing {
   id: string;
-  type: 'rectangle' | 'circle' | 'arrow' | 'text';
+  type: 'brush' | 'rectangle' | 'circle' | 'arrow' | 'text';
   x: number;
   y: number;
   width?: number;
@@ -238,12 +252,36 @@ interface Drawing {
   fontSize?: number;
   color: string;
   lineWidth: number;
+  points?: Array<{ x: number; y: number }>; // For brush/freehand drawing
 }
 
 const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ onBack }) => {
+  // Access control
+  const [hasAccess, setHasAccess] = useState<boolean | null>(null);
+  const [accessLoading, setAccessLoading] = useState(true);
+  
+  // Image list state
   const [pendingImages, setPendingImages] = useState<InspectionImage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
+  const [successMessage, setSuccessMessage] = useState<string>('');
+  const [pagination, setPagination] = useState<PaginationInfo | null>(null);
+  
+  // Sorting and filtering
+  const [sortBy, setSortBy] = useState<'createdAt' | 'carNumber' | 'status'>('createdAt');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [debouncedSearch, setDebouncedSearch] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  
+  // Image locking
+  const [lockedImageId, setLockedImageId] = useState<number | null>(null);
+  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lockStatusPollingRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // View state
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [selectedImage, setSelectedImage] = useState<InspectionImage | null>(null);
   const [previousDayImage, setPreviousDayImage] = useState<InspectionImage | null>(null);
@@ -251,12 +289,13 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [currentTool, setCurrentTool] = useState<DrawingTool>('none');
   const [drawingColor, setDrawingColor] = useState('#FF0000');
-  const [lineWidth, setLineWidth] = useState(2);
+  const [lineWidth] = useState(2.5); // Fixed line width
   const [fontSize, setFontSize] = useState(16);
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null);
+  const [currentBrushPath, setCurrentBrushPath] = useState<Array<{ x: number; y: number }>>([]);
   const [textInput, setTextInput] = useState<string>('');
-  const [textInputPosition, setTextInputPosition] = useState<{ x: number; y: number } | null>(null);
+  const [textInputPosition, setTextInputPosition] = useState<{ x: number; y: number; canvasX: number; canvasY: number } | null>(null);
   const textInputRef = useRef<HTMLInputElement | null>(null);
   const isTextInputActiveRef = useRef<boolean>(false);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
@@ -284,53 +323,112 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   const containerRef = useRef<HTMLDivElement>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const colors = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF'];
+  const colors = ['#FF0000', '#00FF00']; // Only red and green
 
+  // Check access on mount
   useEffect(() => {
-    console.log('[ManualInspection] Component mounted, initializing...');
+    const checkAccess = async () => {
+      try {
+        setAccessLoading(true);
+        const response = await checkDashboardAccess();
+        if (response.hasAccess) {
+          setHasAccess(true);
     fetchPendingImages();
     
     // Poll every 30 seconds for new images
-    console.log('[ManualInspection] Setting up polling interval (30s)');
     pollingIntervalRef.current = setInterval(() => {
-      console.log('[ManualInspection] Polling interval triggered, fetching images...');
       fetchPendingImages(true);
     }, 30000);
+          
+          // Lock status polling will be set up after first fetch
+        } else {
+          setHasAccess(false);
+        }
+      } catch (err: any) {
+        console.error('[ManualInspection] Access check failed:', err);
+        if (err.response?.status === 403) {
+          setHasAccess(false);
+        } else {
+          setError('Failed to check access. Please try again.');
+        }
+      } finally {
+        setAccessLoading(false);
+      }
+    };
+    
+    checkAccess();
 
     return () => {
-      console.log('[ManualInspection] Component unmounting, clearing interval');
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
+      }
+      if (lockStatusPollingRef.current) {
+        clearInterval(lockStatusPollingRef.current);
+      }
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+      }
+      // Unlock image if still locked
+      if (lockedImageId) {
+        unlockImage(lockedImageId).catch(console.error);
       }
     };
   }, []);
 
+  // Debounce search term
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setCurrentPage(1); // Reset to first page on search
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Fetch images when filters/sort/page change
+  useEffect(() => {
+    if (hasAccess) {
+      fetchPendingImages();
+    }
+  }, [sortBy, sortOrder, statusFilter, debouncedSearch, currentPage, pageSize]);
+
   const fetchPendingImages = async (silent: boolean = false) => {
     try {
-      console.log('[ManualInspection] Fetching pending images...', { silent, clientName: 'REFUX' });
       if (!silent) {
         setLoading(true);
       }
       setError('');
-      const response = await getPendingImages({ clientName: 'REFUX' });
+      const params: any = {
+        sortBy,
+        sortOrder,
+        page: currentPage,
+        limit: pageSize
+      };
+      if (statusFilter !== 'all') {
+        params.status = statusFilter;
+      }
+      if (debouncedSearch) {
+        params.search = debouncedSearch;
+      }
+      
+      const response = await getPendingImages(params);
       console.log('[ManualInspection] API Response:', {
         success: response.success,
         count: response.count,
         imagesLength: response.images?.length || 0,
-        images: response.images,
+        pagination: response.pagination,
         fullResponse: response
       });
       if (response.success) {
-        console.log('[ManualInspection] Setting pending images:', response.images.length, 'images');
-        // Sort by latest first (descending by id or createdAt)
-        const sortedImages = [...response.images].sort((a, b) => {
-          // Sort by id descending (higher id = newer) or by createdAt if available
-          if (a.createdAt && b.createdAt) {
-            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-          }
-          return (b.id || 0) - (a.id || 0);
-        });
-        setPendingImages(sortedImages);
+        setPendingImages(response.images);
+        if (response.pagination) {
+          setPagination(response.pagination);
+        }
+        // Set up lock status polling if not already set
+        if (!lockStatusPollingRef.current && response.images.length > 0) {
+          lockStatusPollingRef.current = setInterval(() => {
+            fetchPendingImages(true);
+          }, 10000);
+        }
       } else {
         console.warn('[ManualInspection] API returned success=false:', response);
       }
@@ -357,6 +455,38 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   };
 
   const handleImageClick = async (image: InspectionImage) => {
+    // Check if image is locked by another user
+    if (image.lockInfo?.isLocked && !image.lockInfo?.isCurrentUser) {
+      setError(`This image is being inspected by another user. Please try again later.`);
+      return;
+    }
+    
+    try {
+      // Lock the image
+      const lockResponse = await lockImage(image.id);
+      if (lockResponse.success) {
+        const currentImageId = image.id;
+        setLockedImageId(currentImageId);
+        // Start heartbeat interval (every 25 seconds)
+        heartbeatIntervalRef.current = setInterval(() => {
+          sendLockHeartbeat(currentImageId).catch(err => {
+            console.error('[ManualInspection] Heartbeat failed:', err);
+          });
+        }, 25000);
+      } else {
+        setError('Failed to lock image. It may be locked by another user.');
+        return;
+      }
+    } catch (err: any) {
+      console.error('[ManualInspection] Failed to lock image:', err);
+      if (err.response?.status === 409) {
+        setError('This image is being inspected by another user. Please try again later.');
+      } else {
+        setError('Failed to lock image. Please try again.');
+      }
+      return;
+    }
+    
     setSelectedImage(image);
     setViewMode('review');
     setDrawings([]);
@@ -497,41 +627,45 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
       setIncrementImageBlobUrl(null);
     }
 
-    // Set initial active image to original immediately
+    // Always use original image for editing canvas
     setActiveImageType('original');
     // Set active image blob URL immediately if we have it
     if (mainBlobUrl) {
       setActiveImageBlobUrl(mainBlobUrl);
+      setImageBlobUrl(mainBlobUrl);
     }
   };
 
-  // Update active image when activeImageType or source URLs change
+  // Always keep canvas showing original image
   useEffect(() => {
     if (!selectedImage) return;
 
-    let newBlobUrl: string | null = null;
-    
-    if (activeImageType === 'original') {
-      newBlobUrl = imageBlobUrl;
-    } else if (activeImageType === 'previous') {
-      newBlobUrl = previousImageBlobUrl;
-    } else if (activeImageType === 'ai1') {
-      newBlobUrl = aiProcessedImageBlobUrls[0] || null;
-    } else if (activeImageType === 'ai2') {
-      newBlobUrl = aiProcessedImageBlobUrls[1] || null;
-    } else if (activeImageType === 'increment') {
-      newBlobUrl = incrementImageBlobUrl;
-    }
-
-    // Always update to sync with source URLs (especially important for original image)
-    setActiveImageBlobUrl(newBlobUrl);
-    if (newBlobUrl) {
+    // Canvas always shows original image
+    setActiveImageType('original');
+    setActiveImageBlobUrl(imageBlobUrl);
+    if (imageBlobUrl) {
       setImageLoaded(false);
       setImageLoadError(false);
     }
-  }, [activeImageType, imageBlobUrl, previousImageBlobUrl, aiProcessedImageBlobUrls, incrementImageBlobUrl, selectedImage]);
+  }, [imageBlobUrl, selectedImage]);
 
-  const handleBackToGrid = () => {
+  const handleBackToGrid = async () => {
+    // Unlock image if locked
+    if (lockedImageId) {
+      try {
+        await unlockImage(lockedImageId);
+      } catch (err) {
+        console.error('[ManualInspection] Failed to unlock image:', err);
+      }
+      setLockedImageId(null);
+    }
+    
+    // Clear heartbeat interval
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+    
     // Clean up blob URLs
     if (imageBlobUrl) {
       URL.revokeObjectURL(imageBlobUrl);
@@ -551,16 +685,21 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
     setImageLoadError(false);
   };
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (currentTool === 'none' || !imageRef.current || !canvasRef.current) return;
+  // Precise coordinate conversion helper - FIXED VERSION
+  const screenToImageCoords = (
+    screenX: number,
+    screenY: number,
+    canvas: HTMLCanvasElement,
+    img: HTMLImageElement
+  ): { x: number; y: number } | null => {
+    if (!canvas || !img || img.naturalWidth === 0 || img.naturalHeight === 0) {
+      return null;
+    }
 
-    const canvas = canvasRef.current;
-    const img = imageRef.current;
     const rect = canvas.getBoundingClientRect();
-
-    // Calculate image display area using natural dimensions
     const imgAspect = img.naturalWidth / img.naturalHeight;
     const canvasAspect = rect.width / rect.height;
+    
     let drawWidth = rect.width;
     let drawHeight = rect.height;
     let drawX = 0;
@@ -574,16 +713,40 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
       drawX = (rect.width - drawWidth) / 2;
     }
 
-    // Convert mouse coordinates to image coordinates
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    // Use naturalWidth/naturalHeight for accurate image coordinates
-    const x = ((mouseX - drawX - imageOffset.x) / zoom) * (img.naturalWidth / drawWidth);
-    const y = ((mouseY - drawY - imageOffset.y) / zoom) * (img.naturalHeight / drawHeight);
+    // Convert screen coordinates to canvas coordinates
+    const canvasX = screenX - rect.left;
+    const canvasY = screenY - rect.top;
+
+    // Account for zoom and offset, then convert to image coordinates
+    // Fix: Properly scale coordinates
+    const scaleX = img.naturalWidth / drawWidth;
+    const scaleY = img.naturalHeight / drawHeight;
+    const x = ((canvasX - drawX - imageOffset.x) / zoom) * scaleX;
+    const y = ((canvasY - drawY - imageOffset.y) / zoom) * scaleY;
+
+    // Clamp to image bounds
+    return {
+      x: Math.max(0, Math.min(img.naturalWidth, x)),
+      y: Math.max(0, Math.min(img.naturalHeight, y))
+    };
+  };
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (currentTool === 'none' || !imageRef.current || !canvasRef.current) return;
+
+    const canvas = canvasRef.current;
+    const img = imageRef.current;
+    const coords = screenToImageCoords(e.clientX, e.clientY, canvas, img);
+    
+    if (!coords) return;
+    const { x, y } = coords;
 
     if (currentTool === 'text') {
-      // For text, show input dialog at click position
-      setTextInputPosition({ x, y });
+      // For text, show input dialog at exact click position
+      const rect = canvas.getBoundingClientRect();
+      const canvasX = e.clientX - rect.left;
+      const canvasY = e.clientY - rect.top;
+      setTextInputPosition({ x, y, canvasX, canvasY });
       setTextInput('');
       isTextInputActiveRef.current = true;
       // Focus the input after a tiny delay to ensure it's rendered
@@ -592,6 +755,23 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
           textInputRef.current.focus();
         }
       }, 50);
+      return;
+    }
+
+    if (currentTool === 'brush') {
+      // Start freehand drawing
+      setIsDrawing(true);
+      setCurrentBrushPath([{ x, y }]);
+      const tempDrawing: Drawing = {
+        id: `brush-${Date.now()}-${Math.random()}`,
+        type: 'brush',
+        x: x,
+        y: y,
+        color: drawingColor,
+        lineWidth,
+        points: [{ x, y }]
+      };
+      setDrawings(prev => [...prev, tempDrawing]);
       return;
     }
 
@@ -660,30 +840,9 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
 
     const canvas = canvasRef.current;
     const img = imageRef.current;
-    if (img.naturalWidth === 0 || img.naturalHeight === 0) return;
-    const rect = canvas.getBoundingClientRect();
-
-    // Calculate image display area using natural dimensions
-    const imgAspect = img.naturalWidth / img.naturalHeight;
-    const canvasAspect = rect.width / rect.height;
-    let drawWidth = rect.width;
-    let drawHeight = rect.height;
-    let drawX = 0;
-    let drawY = 0;
-
-    if (imgAspect > canvasAspect) {
-      drawHeight = rect.width / imgAspect;
-      drawY = (rect.height - drawHeight) / 2;
-    } else {
-      drawWidth = rect.height * imgAspect;
-      drawX = (rect.width - drawWidth) / 2;
-    }
-
-    // Convert mouse coordinates to image coordinates using natural dimensions
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    const x = ((mouseX - drawX - imageOffset.x) / zoom) * (img.naturalWidth / drawWidth);
-    const y = ((mouseY - drawY - imageOffset.y) / zoom) * (img.naturalHeight / drawHeight);
+    const coords = screenToImageCoords(e.clientX, e.clientY, canvas, img);
+    if (!coords) return;
+    const { x, y } = coords;
 
     // Handle dragging existing drawing
     if (isDraggingDrawing && selectedDrawingId && dragOffset) {
@@ -702,6 +861,14 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
             return { ...d, x1: newX, y1: newY, x2: newX + dx, y2: newY + dy };
           } else if (d.type === 'text') {
             return { ...d, x: newX, y: newY };
+          } else if (d.type === 'brush' && d.points && d.points.length > 0) {
+            // Move all points in brush path by the offset
+            const dx = newX - d.points[0].x;
+            const dy = newY - d.points[0].y;
+            return {
+              ...d,
+              points: d.points.map(p => ({ x: p.x + dx, y: p.y + dy }))
+            };
           }
         }
         return d;
@@ -709,14 +876,36 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
       return;
     }
 
-    if (currentTool === 'rectangle') {
+    if (currentTool === 'brush') {
+      // Add point to current brush path
+      setDrawings(prev => {
+        const updated = [...prev];
+        const lastIndex = updated.length - 1;
+        if (lastIndex >= 0 && updated[lastIndex].type === 'brush' && updated[lastIndex].points) {
+          const newPoints = [...updated[lastIndex].points!, { x, y }];
+          updated[lastIndex] = {
+            ...updated[lastIndex],
+            points: newPoints
+          };
+        }
+        return updated;
+      });
+    } else if (currentTool === 'rectangle') {
+      // Calculate rectangle with proper bounds
+      const minX = Math.min(drawStart.x, x);
+      const minY = Math.min(drawStart.y, y);
+      const maxX = Math.max(drawStart.x, x);
+      const maxY = Math.max(drawStart.y, y);
+      const width = maxX - minX;
+      const height = maxY - minY;
+      
       const newDrawing: Drawing = {
         id: '', // Temporary, will get id on mouse up
         type: 'rectangle',
-        x: Math.min(drawStart.x, x),
-        y: Math.min(drawStart.y, y),
-        width: Math.abs(x - drawStart.x),
-        height: Math.abs(y - drawStart.y),
+        x: minX,
+        y: minY,
+        width: Math.max(width, 1), // Minimum 1px width
+        height: Math.max(height, 1), // Minimum 1px height
         color: drawingColor,
         lineWidth
       };
@@ -732,15 +921,16 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
         }
       });
     } else if (currentTool === 'circle') {
+      // Calculate radius from center to current mouse position
       const radius = Math.sqrt(
         Math.pow(x - drawStart.x, 2) + Math.pow(y - drawStart.y, 2)
       );
       const newDrawing: Drawing = {
         id: '', // Temporary, will get id on mouse up
         type: 'circle',
-        x: drawStart.x,
-        y: drawStart.y,
-        radius,
+        x: drawStart.x, // Center X
+        y: drawStart.y, // Center Y
+        radius: Math.max(radius, 1), // Minimum 1px radius
         color: drawingColor,
         lineWidth
       };
@@ -816,6 +1006,14 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
             return drawing;
           }
         }
+      } else if (drawing.type === 'brush' && drawing.points && drawing.points.length > 0) {
+        // Check if point is near any point in the brush path (within 5 pixels)
+        for (const point of drawing.points) {
+          const distance = Math.sqrt(Math.pow(x - point.x, 2) + Math.pow(y - point.y, 2));
+          if (distance <= 5) {
+            return drawing;
+          }
+        }
       } else if (drawing.type === 'text' && drawing.text) {
         // For text, use a much simpler distance-based hit detection
         // This is more forgiving and easier to click
@@ -847,7 +1045,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
         text: textInput.trim(),
         fontSize: fontSize,
         color: drawingColor,
-        lineWidth: 1
+        lineWidth: lineWidth // Use default line width (not used for text rendering but needed for type)
       };
       setDrawings(prev => [...prev, newDrawing]);
     }
@@ -863,8 +1061,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
         if (!d.id) {
           // Assign id to temporary drawing
           const finalized = { ...d, id: `drawing-${Date.now()}-${Math.random()}` };
-          // Auto-switch to none tool after creating drawing so user can immediately drag it
-          setCurrentTool('none');
+          // Don't auto-switch tool - let user keep drawing if they want
           return finalized;
         }
         return d;
@@ -945,6 +1142,12 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
         setDragOffset({
           x: x - clickedDrawing.x,
           y: y - clickedDrawing.y
+        });
+      } else if (clickedDrawing.type === 'brush' && clickedDrawing.points && clickedDrawing.points.length > 0) {
+        // For brush, use first point as reference
+        setDragOffset({
+          x: x - clickedDrawing.points[0].x,
+          y: y - clickedDrawing.points[0].y
         });
       }
       return; // Don't proceed with tool-specific logic
@@ -1085,18 +1288,29 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
       drawX = (canvas.width - drawWidth) / 2;
     }
 
+    // Calculate scale factors for converting image natural coordinates to display coordinates
+    const scaleX = (drawWidth / zoom) / img.naturalWidth;
+    const scaleY = (drawHeight / zoom) / img.naturalHeight;
+    
     // Apply zoom and offset
     ctx.save();
     ctx.translate(drawX + imageOffset.x, drawY + imageOffset.y);
     ctx.scale(zoom, zoom);
     
-    // Draw image using natural dimensions
+    // Draw image using natural dimensions (scaled to fit display)
     ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, 0, 0, drawWidth / zoom, drawHeight / zoom);
 
-    // Draw annotations
+    // Draw annotations - convert from natural image coordinates to display coordinates
     drawings.forEach(drawing => {
       const isSelected = drawing.id === selectedDrawingId;
       const baseLineWidth = (drawing.lineWidth || 2) / zoom;
+      
+      // Convert drawing coordinates from natural image space to display space
+      const displayX = drawing.x * scaleX;
+      const displayY = drawing.y * scaleY;
+      const displayWidth = drawing.width ? drawing.width * scaleX : undefined;
+      const displayHeight = drawing.height ? drawing.height * scaleY : undefined;
+      const displayRadius = drawing.radius ? drawing.radius * Math.min(scaleX, scaleY) : undefined;
       
       // Draw selection border first (behind the drawing)
       if (isSelected) {
@@ -1104,16 +1318,29 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
         ctx.lineWidth = baseLineWidth + 3;
         ctx.setLineDash([8, 4]);
         
-        if (drawing.type === 'rectangle' && drawing.width && drawing.height) {
-          ctx.strokeRect(drawing.x - 3, drawing.y - 3, drawing.width + 6, drawing.height + 6);
-        } else if (drawing.type === 'circle' && drawing.radius) {
+        if (drawing.type === 'rectangle' && displayWidth && displayHeight) {
+          ctx.strokeRect(displayX - 3, displayY - 3, displayWidth + 6, displayHeight + 6);
+        } else if (drawing.type === 'circle' && displayRadius) {
           ctx.beginPath();
-          ctx.arc(drawing.x, drawing.y, drawing.radius + 3, 0, 2 * Math.PI);
+          ctx.arc(displayX, displayY, displayRadius + 3, 0, 2 * Math.PI);
           ctx.stroke();
         } else if (drawing.type === 'arrow' && drawing.x1 !== undefined && drawing.y1 !== undefined && drawing.x2 !== undefined && drawing.y2 !== undefined) {
+          const displayX1 = drawing.x1 * scaleX;
+          const displayY1 = drawing.y1 * scaleY;
+          const displayX2 = drawing.x2 * scaleX;
+          const displayY2 = drawing.y2 * scaleY;
           ctx.beginPath();
-          ctx.moveTo(drawing.x1, drawing.y1);
-          ctx.lineTo(drawing.x2, drawing.y2);
+          ctx.moveTo(displayX1, displayY1);
+          ctx.lineTo(displayX2, displayY2);
+          ctx.stroke();
+        } else if (drawing.type === 'brush' && drawing.points && drawing.points.length > 0) {
+          // Draw selection border around brush path
+          ctx.beginPath();
+          const firstPoint = drawing.points[0];
+          ctx.moveTo(firstPoint.x * scaleX, firstPoint.y * scaleY);
+          for (let i = 1; i < drawing.points.length; i++) {
+            ctx.lineTo(drawing.points[i].x * scaleX, drawing.points[i].y * scaleY);
+          }
           ctx.stroke();
         } else if (drawing.type === 'text' && drawing.text) {
           // Measure text to draw accurate selection border
@@ -1121,11 +1348,11 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
           ctx.font = `${drawing.fontSize || 16}px Arial`;
           const metrics = ctx.measureText(drawing.text);
           const textWidth = metrics.width;
-          const textHeight = drawing.fontSize || 16;
+          const textHeight = (drawing.fontSize || 16) * scaleY;
           // Text y is baseline, so selection box goes from y - textHeight to y
           ctx.strokeRect(
-            drawing.x - 3, 
-            drawing.y - textHeight - 3, 
+            displayX - 3, 
+            displayY - textHeight - 3, 
             textWidth + 6, 
             textHeight + 6
           );
@@ -1138,39 +1365,55 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
       ctx.setLineDash([]);
       ctx.fillStyle = drawing.color;
 
-      if (drawing.type === 'rectangle' && drawing.width && drawing.height) {
-        ctx.strokeRect(drawing.x, drawing.y, drawing.width, drawing.height);
-      } else if (drawing.type === 'circle' && drawing.radius) {
+      if (drawing.type === 'rectangle' && displayWidth && displayHeight) {
+        ctx.strokeRect(displayX, displayY, displayWidth, displayHeight);
+      } else if (drawing.type === 'circle' && displayRadius) {
         ctx.beginPath();
-        ctx.arc(drawing.x, drawing.y, drawing.radius, 0, 2 * Math.PI);
+        ctx.arc(displayX, displayY, displayRadius, 0, 2 * Math.PI);
         ctx.stroke();
       } else if (drawing.type === 'arrow' && drawing.x1 !== undefined && drawing.y1 !== undefined && drawing.x2 !== undefined && drawing.y2 !== undefined) {
+        const displayX1 = drawing.x1 * scaleX;
+        const displayY1 = drawing.y1 * scaleY;
+        const displayX2 = drawing.x2 * scaleX;
+        const displayY2 = drawing.y2 * scaleY;
         // Draw arrow line
         ctx.beginPath();
-        ctx.moveTo(drawing.x1, drawing.y1);
-        ctx.lineTo(drawing.x2, drawing.y2);
+        ctx.moveTo(displayX1, displayY1);
+        ctx.lineTo(displayX2, displayY2);
         ctx.stroke();
 
         // Draw arrowhead
-        const angle = Math.atan2(drawing.y2 - drawing.y1, drawing.x2 - drawing.x1);
+        const angle = Math.atan2(displayY2 - displayY1, displayX2 - displayX1);
         const arrowLength = 15 / zoom;
         ctx.beginPath();
-        ctx.moveTo(drawing.x2, drawing.y2);
+        ctx.moveTo(displayX2, displayY2);
         ctx.lineTo(
-          drawing.x2 - arrowLength * Math.cos(angle - Math.PI / 6),
-          drawing.y2 - arrowLength * Math.sin(angle - Math.PI / 6)
+          displayX2 - arrowLength * Math.cos(angle - Math.PI / 6),
+          displayY2 - arrowLength * Math.sin(angle - Math.PI / 6)
         );
-        ctx.moveTo(drawing.x2, drawing.y2);
+        ctx.moveTo(displayX2, displayY2);
         ctx.lineTo(
-          drawing.x2 - arrowLength * Math.cos(angle + Math.PI / 6),
-          drawing.y2 - arrowLength * Math.sin(angle + Math.PI / 6)
+          displayX2 - arrowLength * Math.cos(angle + Math.PI / 6),
+          displayY2 - arrowLength * Math.sin(angle + Math.PI / 6)
         );
         ctx.stroke();
-      } else if (drawing.type === 'text' && drawing.text) {
-        // Font size should be in image coordinates, not divided by zoom
-        // The zoom is already applied via ctx.scale, so we use the original font size
+      } else if (drawing.type === 'brush' && drawing.points && drawing.points.length > 0) {
+        // Draw freehand brush path
+        ctx.beginPath();
+        const firstPoint = drawing.points[0];
+        ctx.moveTo(firstPoint.x * scaleX, firstPoint.y * scaleY);
+        for (let i = 1; i < drawing.points.length; i++) {
+          ctx.lineTo(drawing.points[i].x * scaleX, drawing.points[i].y * scaleY);
+        }
+        ctx.stroke();
+      } else if (drawing.type === 'text' && drawing.text && drawing.x !== undefined && drawing.y !== undefined) {
+        // Set text properties for proper rendering
         ctx.font = `${drawing.fontSize || 16}px Arial`;
-        ctx.fillText(drawing.text, drawing.x, drawing.y);
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = drawing.color;
+        // Draw text at exact position (scaled)
+        ctx.fillText(drawing.text, displayX, displayY);
       }
     });
 
@@ -1200,6 +1443,12 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
 
   const handleSaveAnnotations = async () => {
     if (!selectedImage) return;
+
+    // Check lock status before saving
+    if (selectedImage.lockInfo?.isLocked && !selectedImage.lockInfo?.isCurrentUser) {
+      setError('This image is being inspected by another user. You cannot save annotations.');
+      return;
+    }
 
     setSavingAnnotations(true);
     try {
@@ -1377,38 +1626,61 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
     }
   };
 
-  // Export canvas (original image + drawings) as image blob
+  // Export canvas (original image + drawings) as image blob - FIXED VERSION
   const exportCanvasAsImage = async (): Promise<Blob | null> => {
     if (!canvasRef.current || !imageRef.current || !imageLoaded) {
-      alert('Image not loaded yet. Please wait for the image to load.');
+      setError('Image not loaded yet. Please wait for the image to load.');
       return null;
     }
 
     const img = imageRef.current;
     
-    // Create a temporary canvas with the full image size
+    // Wait for image to be fully loaded
+    if (!img.complete || img.naturalWidth === 0 || img.naturalHeight === 0) {
+      setError('Image is still loading. Please wait.');
+      return null;
+    }
+    
+    // Create a temporary canvas with the full image size (high quality)
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = img.naturalWidth;
     tempCanvas.height = img.naturalHeight;
-    const ctx = tempCanvas.getContext('2d');
+    const ctx = tempCanvas.getContext('2d', { alpha: false });
     
-    if (!ctx) return null;
+    if (!ctx) {
+      setError('Failed to create canvas context.');
+      return null;
+    }
 
-    // Draw the original image
+    // Set high quality rendering
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    // Draw the original image first (white background for JPEG)
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
     ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
 
     // Draw all annotations on top (drawings are already in image coordinates)
+    if (drawings.length > 0) {
     drawings.forEach(drawing => {
       ctx.strokeStyle = drawing.color;
-      ctx.lineWidth = drawing.lineWidth || 2;
       ctx.fillStyle = drawing.color;
+        ctx.lineWidth = drawing.lineWidth || 2.5;
       ctx.setLineDash([]);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
 
-      if (drawing.type === 'rectangle' && drawing.width && drawing.height && drawing.x !== undefined && drawing.y !== undefined) {
-        ctx.strokeRect(drawing.x, drawing.y, drawing.width, drawing.height);
-      } else if (drawing.type === 'circle' && drawing.radius && drawing.x !== undefined && drawing.y !== undefined) {
+        if (drawing.type === 'rectangle' && drawing.width !== undefined && drawing.height !== undefined && drawing.x !== undefined && drawing.y !== undefined) {
+          // Ensure minimum size
+          const width = Math.max(drawing.width, 1);
+          const height = Math.max(drawing.height, 1);
+          ctx.strokeRect(drawing.x, drawing.y, width, height);
+        } else if (drawing.type === 'circle' && drawing.radius !== undefined && drawing.x !== undefined && drawing.y !== undefined) {
+          // Ensure minimum radius
+          const radius = Math.max(drawing.radius, 1);
         ctx.beginPath();
-        ctx.arc(drawing.x, drawing.y, drawing.radius, 0, 2 * Math.PI);
+          ctx.arc(drawing.x, drawing.y, radius, 0, 2 * Math.PI);
         ctx.stroke();
       } else if (drawing.type === 'arrow' && drawing.x1 !== undefined && drawing.y1 !== undefined && drawing.x2 !== undefined && drawing.y2 !== undefined) {
         // Draw arrow line
@@ -1419,7 +1691,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
 
         // Draw arrowhead
         const angle = Math.atan2(drawing.y2 - drawing.y1, drawing.x2 - drawing.x1);
-        const arrowLength = 15;
+          const arrowLength = Math.max(15, drawing.lineWidth || 2.5) * 3;
         ctx.beginPath();
         ctx.moveTo(drawing.x2, drawing.y2);
         ctx.lineTo(
@@ -1432,17 +1704,38 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
           drawing.y2 - arrowLength * Math.sin(angle + Math.PI / 6)
         );
         ctx.stroke();
-      } else if (drawing.type === 'text' && drawing.text) {
+        } else if (drawing.type === 'text' && drawing.text && drawing.x !== undefined && drawing.y !== undefined) {
+          // Set text properties
         ctx.font = `${drawing.fontSize || 16}px Arial`;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          // Draw text with slight offset for better positioning
         ctx.fillText(drawing.text, drawing.x, drawing.y);
+      } else if (drawing.type === 'brush' && drawing.points && drawing.points.length > 0) {
+        // Draw freehand brush path
+        ctx.beginPath();
+        ctx.moveTo(drawing.points[0].x, drawing.points[0].y);
+        for (let i = 1; i < drawing.points.length; i++) {
+          ctx.lineTo(drawing.points[i].x, drawing.points[i].y);
+        }
+        ctx.stroke();
       }
     });
+    }
 
-    // Convert canvas to blob
-    return new Promise((resolve) => {
-      tempCanvas.toBlob((blob) => {
+    // Convert canvas to blob with high quality
+    return new Promise((resolve, reject) => {
+      tempCanvas.toBlob(
+        (blob) => {
+          if (blob) {
         resolve(blob);
-      }, 'image/jpeg', 0.95);
+          } else {
+            reject(new Error('Failed to create blob from canvas'));
+          }
+        },
+        'image/jpeg',
+        0.98 // High quality JPEG
+      );
     });
   };
 
@@ -1464,24 +1757,48 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
     URL.revokeObjectURL(url);
   };
 
-  // Replace AI image or set as increment using drawn image
+  // Replace AI image or set as increment using drawn image - FIXED VERSION
   const handleUseDrawnImageAs = async (target: 'model1' | 'model2' | 'increment') => {
-    if (!selectedImage) return;
-
-    const drawnImageBlob = await exportCanvasAsImage();
-    if (!drawnImageBlob) {
-      alert('Failed to export drawn image. Please try again.');
+    if (!selectedImage) {
+      setError('No image selected');
       return;
     }
 
     setUploadingImage(target === 'increment' ? 'increment' : `ai-${target}`);
+    setError('');
+    setSuccessMessage('');
+    
     try {
-      const fileName = `drawn-${selectedImage.id}-${Date.now()}.jpg`;
+      // Export canvas as blob
+    const drawnImageBlob = await exportCanvasAsImage();
+    if (!drawnImageBlob) {
+        setError('Failed to export drawn image. Please try again.');
+        setUploadingImage(null);
+      return;
+    }
+
+      // Verify blob size
+      if (drawnImageBlob.size === 0) {
+        setError('Exported image is empty. Please check your drawings.');
+        setUploadingImage(null);
+        return;
+      }
+
+      console.log('[ManualInspection] Exporting image:', {
+        blobSize: drawnImageBlob.size,
+        blobType: drawnImageBlob.type,
+        drawingsCount: drawings.length
+      });
+
+      const fileName = `edited-${selectedImage.id}-${target}-${Date.now()}.jpg`;
       const contentType = 'image/jpeg';
       
+      // Get presigned URL and upload
       const { presignedUrl, s3Url } = await getPresignedUploadUrl({ fileName, contentType });
+      console.log('[ManualInspection] Got presigned URL:', { s3Url });
       
-      await uploadFileToS3({ presignedUrl, file: drawnImageBlob, contentType });
+      const uploadResult = await uploadFileToS3({ presignedUrl, file: drawnImageBlob, contentType });
+      console.log('[ManualInspection] Upload result:', uploadResult);
       
       if (target === 'increment') {
         // Upload as increment image
@@ -1490,24 +1807,77 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
         });
 
         if (response.success) {
+          console.log('[ManualInspection] Increment image updated:', response);
+          
+          // Update selected image
           setSelectedImage(response.image);
           setPendingImages(prev => prev.map(img => 
             img.id === response.image.id ? response.image : img
           ));
           
-          // Load increment image
+          // Reload increment image - Force refresh with cache busting
           if (response.image.incrementImageStreamUrl) {
             try {
-              const incrementBlobUrl = await fetchImageAsBlob({
-                ...response.image,
-                streamUrl: response.image.incrementImageStreamUrl
+              // Clean up old blob URL
+              if (incrementImageBlobUrl) {
+                URL.revokeObjectURL(incrementImageBlobUrl);
+              }
+              
+              // Clear current image first to force UI update
+              setIncrementImageBlobUrl(null);
+              
+              // Wait a tiny bit to ensure state update
+              await new Promise(resolve => setTimeout(resolve, 100));
+              
+              // Fetch with cache busting
+              const baseURL = import.meta.env.VITE_API_BASE_URL || '';
+              let incrementUrl = response.image.incrementImageStreamUrl;
+              if (!incrementUrl.startsWith('http://') && !incrementUrl.startsWith('https://')) {
+                incrementUrl = `${baseURL}${incrementUrl.startsWith('/') ? '' : '/'}${incrementUrl}`;
+              }
+              
+              // Add cache busting parameter
+              const cacheBuster = incrementUrl.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
+              const fullUrl = `${incrementUrl}${cacheBuster}`;
+              
+              console.log('[ManualInspection] Fetching increment image with cache busting:', fullUrl);
+              
+              const token = await cognitoService.getAccessToken();
+              if (!token) throw new Error('No authentication token available');
+              
+              const fetchResponse = await fetch(fullUrl, {
+                cache: 'no-store',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Cache-Control': 'no-cache'
+                }
               });
-              setIncrementImageBlobUrl(incrementBlobUrl);
+              
+              if (!fetchResponse.ok) {
+                throw new Error(`Failed to fetch increment image: ${fetchResponse.status}`);
+              }
+              
+              const blob = await fetchResponse.blob();
+              const newBlobUrl = URL.createObjectURL(blob);
+              
+              setIncrementImageBlobUrl(newBlobUrl);
+              console.log('[ManualInspection] Increment image loaded successfully with new blob URL:', newBlobUrl);
             } catch (err) {
-              console.error('Failed to load increment image:', err);
+              console.error('[ManualInspection] Failed to load increment image:', err);
+              setError('Image replaced but failed to reload. Please refresh.');
             }
+          } else {
+            // If no increment image in response, clear it
+            if (incrementImageBlobUrl) {
+              URL.revokeObjectURL(incrementImageBlobUrl);
+            }
+            setIncrementImageBlobUrl(null);
           }
-          alert('Drawn image saved as increment image!');
+          
+          setSuccessMessage('Increment image updated successfully!');
+          setTimeout(() => setSuccessMessage(''), 3000);
+        } else {
+          setError('Failed to update increment image. Please try again.');
         }
       } else {
         // Replace AI image
@@ -1517,50 +1887,109 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
         });
 
         if (response.success) {
+          console.log('[ManualInspection] AI image replaced:', response);
+          
+          // Update selected image
           setSelectedImage(response.image);
           setPendingImages(prev => prev.map(img => 
             img.id === response.image.id ? response.image : img
           ));
           
-          // Reload AI processed images
+          // Reload AI processed images - Force refresh with cache busting
           if (response.image.aiProcessedImageUrls && response.image.aiProcessedImageUrls.length > 0) {
-            const aiBlobPromises = response.image.aiProcessedImageUrls.map(async (url) => {
+            // Clean up old blob URLs
+            aiProcessedImageBlobUrls.forEach(url => {
+              if (url) URL.revokeObjectURL(url);
+            });
+            
+            // Clear current images first to force refresh
+            setAiProcessedImageBlobUrls([]);
+            
+            const aiBlobPromises = response.image.aiProcessedImageUrls.map(async (url, index) => {
               try {
+                // Handle S3 URLs directly
                 if (url.includes('s3.amazonaws.com') || url.includes('s3.') || (url.startsWith('https://') && !url.includes('/api/'))) {
+                  // For S3 URLs, fetch directly with cache busting
+                  const cacheBuster = `?t=${Date.now()}`;
+                  const fullUrl = url.includes('?') ? `${url}&t=${Date.now()}` : `${url}${cacheBuster}`;
+                  
+                  console.log('[ManualInspection] Fetching S3 AI image:', fullUrl);
+                  const fetchResponse = await fetch(fullUrl, {
+                    cache: 'no-store',
+                    headers: {
+                      'Cache-Control': 'no-cache'
+                    }
+                  });
+                  
+                  if (!fetchResponse.ok) {
+                    console.error('[ManualInspection] Failed to fetch S3 AI image:', fetchResponse.status);
                   return null;
                 }
                 
+                  const blob = await fetchResponse.blob();
+                  const blobUrl = URL.createObjectURL(blob);
+                  console.log('[ManualInspection] S3 AI image loaded:', { index, blobSize: blob.size });
+                  return blobUrl;
+                }
+                
+                // Construct full URL for API endpoints
                 let fullUrl = url;
                 if (!url.startsWith('http://') && !url.startsWith('https://')) {
                   const baseURL = import.meta.env.VITE_API_BASE_URL || '';
                   fullUrl = `${baseURL}${url.startsWith('/') ? '' : '/'}${url}`;
                 }
                 
+                // Add cache busting parameter
+                const cacheBuster = fullUrl.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
+                fullUrl = `${fullUrl}${cacheBuster}`;
+                
                 const token = await cognitoService.getAccessToken();
                 if (!token) throw new Error('No authentication token available');
                 
-                const response = await fetch(fullUrl, {
-                  headers: { 'Authorization': `Bearer ${token}` }
+                console.log('[ManualInspection] Fetching AI image:', fullUrl);
+                const fetchResponse = await fetch(fullUrl, {
+                  cache: 'no-store',
+                  headers: { 
+                    'Authorization': `Bearer ${token}`,
+                    'Cache-Control': 'no-cache'
+                  }
                 });
                 
-                if (!response.ok) return null;
+                if (!fetchResponse.ok) {
+                  console.error('[ManualInspection] Failed to fetch AI image:', fetchResponse.status);
+                  return null;
+                }
                 
-                const blob = await response.blob();
-                return URL.createObjectURL(blob);
+                const blob = await fetchResponse.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                console.log('[ManualInspection] AI image loaded:', { index, blobSize: blob.size });
+                return blobUrl;
               } catch (err) {
+                console.error('[ManualInspection] Error loading AI image:', err);
                 return null;
               }
             });
             
             const aiBlobUrls = await Promise.all(aiBlobPromises);
-            setAiProcessedImageBlobUrls(aiBlobUrls.filter(url => url !== null) as string[]);
+            const validUrls = aiBlobUrls.filter(url => url !== null) as string[];
+            setAiProcessedImageBlobUrls(validUrls);
+            console.log('[ManualInspection] AI images reloaded:', validUrls.length);
+          } else {
+            // If no AI images in response, clear the current ones
+            setAiProcessedImageBlobUrls([]);
           }
-          alert(`Drawn image saved as AI Model ${target === 'model1' ? '1' : '2'}!`);
+          
+          setSuccessMessage(`AI Model ${target === 'model1' ? '1' : '2'} replaced successfully!`);
+          setTimeout(() => setSuccessMessage(''), 3000);
+        } else {
+          setError('Failed to replace AI image. Please try again.');
         }
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to save drawn image');
-      console.error('Failed to use drawn image:', err);
+      console.error('[ManualInspection] Error in handleUseDrawnImageAs:', err);
+      const errorMsg = err.response?.data?.error || err.message || 'Failed to save drawn image';
+      setError(errorMsg);
+      setTimeout(() => setError(''), 5000);
     } finally {
       setUploadingImage(null);
     }
@@ -1568,6 +1997,12 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
 
   const handleApprove = async () => {
     if (!selectedImage) return;
+
+    // Check lock status before approving
+    if (selectedImage.lockInfo?.isLocked && !selectedImage.lockInfo?.isCurrentUser) {
+      setError('This image is being inspected by another user. You cannot approve it.');
+      return;
+    }
 
     setApproving(true);
     try {
@@ -1610,7 +2045,76 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
     return imageType.charAt(0).toUpperCase() + imageType.slice(1).replace(/([A-Z])/g, ' $1');
   };
 
-  if (loading) {
+  const formatLockTime = (lockedAt: string) => {
+    const date = new Date(lockedAt);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'just now';
+    if (diffMins === 1) return '1 minute ago';
+    return `${diffMins} minutes ago`;
+  };
+
+  const getStatusBadgeColor = (status: string) => {
+    switch (status) {
+      case 'PENDING':
+        return 'bg-yellow-500/20 border-yellow-500/30 text-yellow-400';
+      case 'IN_REVIEW':
+        return 'bg-blue-500/20 border-blue-500/30 text-blue-400';
+      case 'APPROVED':
+        return 'bg-green-500/20 border-green-500/30 text-green-400';
+      case 'REJECTED':
+        return 'bg-red-500/20 border-red-500/30 text-red-400';
+      default:
+        return 'bg-gray-500/20 border-gray-500/30 text-gray-400';
+    }
+  };
+
+  // Access control check
+  if (accessLoading) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="text-center"
+        >
+          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-white text-lg">Checking access...</p>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (hasAccess === false) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 max-w-md mx-4 text-center"
+        >
+          <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <AlertCircle className="w-8 h-8 text-red-400" />
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-4">Access Denied</h2>
+          <p className="text-gray-300 mb-6">
+            You don't have permission to access the inspection dashboard. Please contact an administrator to request access.
+          </p>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={onBack}
+            className="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-xl"
+          >
+            Go Back
+          </motion.button>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (loading && !hasAccess) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
         <motion.div
@@ -1713,79 +2217,53 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
           </div>
         </div>
 
-        {/* Main Content - Image Layout with Right Sidebar */}
+        {/* Main Content - New 2-Column Layout */}
         <div className="px-4 md:px-8 pb-8">
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
-            {/* Left: Images Grid (3 columns) */}
-            <div className="lg:col-span-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {/* Previous Day Photo */}
-                <ImageWithComment
-                  label="Previous Day"
-                  imageBlobUrl={previousImageBlobUrl}
-                  comment={null}
-                  editable={false}
-                  loading={loadingPrevious}
-                  isActive={activeImageType === 'previous'}
-                  onClick={() => setActiveImageType('previous')}
-                  onCommentChange={() => {}}
-                />
+          {/* Success Message */}
+          {successMessage && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="mb-4 bg-green-500/20 border border-green-500/30 text-green-400 px-4 py-3 rounded-xl flex items-center gap-2"
+            >
+              <CheckCircle className="w-5 h-5" />
+              <span>{successMessage}</span>
+            </motion.div>
+          )}
 
-                {/* AI Model 1 */}
-                <ImageWithComment
-                  label="AI Model 1"
-                  imageBlobUrl={aiProcessedImageBlobUrls[0] || null}
-                  comment={comments.ai1 || ''}
-                  editable={true}
-                  replaceable={true}
-                  loading={selectedImage.aiProcessingStatus === 'processing' || (uploadingImage === 'ai-model1')}
-                  isActive={activeImageType === 'ai1'}
-                  onClick={() => setActiveImageType('ai1')}
-                  onCommentChange={(text: string) => setComments(prev => ({ ...prev, ai1: text }))}
-                  onReplace={() => handleReplaceAIImage('model1')}
-                  showProcessing={selectedImage.aiProcessingStatus === 'processing'}
-                />
+          {/* Error Message */}
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="mb-4 bg-red-500/20 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl flex items-center gap-2"
+            >
+              <AlertCircle className="w-5 h-5" />
+              <span>{error}</span>
+            </motion.div>
+          )}
 
-                {/* AI Model 2 */}
-                <ImageWithComment
-                  label="AI Model 2"
-                  imageBlobUrl={aiProcessedImageBlobUrls[1] || null}
-                  comment={comments.ai2 || ''}
-                  editable={true}
-                  replaceable={true}
-                  loading={selectedImage.aiProcessingStatus === 'processing' || (uploadingImage === 'ai-model2')}
-                  isActive={activeImageType === 'ai2'}
-                  onClick={() => setActiveImageType('ai2')}
-                  onCommentChange={(text: string) => setComments(prev => ({ ...prev, ai2: text }))}
-                  onReplace={() => handleReplaceAIImage('model2')}
-                  showProcessing={selectedImage.aiProcessingStatus === 'processing'}
-                />
-
-                {/* Increment Image */}
-                <ImageWithComment
-                  label="Increment"
-                  imageBlobUrl={incrementImageBlobUrl}
-                  comment={comments.increment || ''}
-                  editable={true}
-                  replaceable={!!incrementImageBlobUrl}
-                  showAddButton={!incrementImageBlobUrl}
-                  loading={uploadingImage === 'increment'}
-                  isActive={activeImageType === 'increment'}
-                  onClick={() => setActiveImageType('increment')}
-                  onCommentChange={(text: string) => setComments(prev => ({ ...prev, increment: text }))}
-                  onReplace={() => handleUploadIncrementImage()}
-                  onAdd={() => handleUploadIncrementImage()}
-                />
-              </div>
-            </div>
-
-            {/* Right: Drawing Tools Sidebar */}
-            <div className="lg:col-span-1 space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+            {/* Left Column: Editable Canvas (60%) */}
+            <div className="lg:col-span-3 space-y-4">
               {/* Drawing Tools */}
               <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4">
                 <h3 className="text-white font-semibold mb-3 text-sm">Drawing Tools</h3>
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-2">
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => setCurrentTool(currentTool === 'brush' ? 'none' : 'brush')}
+                      className={`p-2 rounded-lg flex items-center justify-center gap-2 ${
+                        currentTool === 'brush' ? 'bg-blue-500/30 border-2 border-blue-500' : 'bg-white/10 border border-white/20'
+                      } text-white`}
+                    >
+                      <Edit2 className="w-4 h-4" />
+                      <span className="text-xs">Brush</span>
+                    </motion.button>
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
@@ -1838,32 +2316,13 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                         setCurrentTool('none');
                         setSelectedDrawingId(null);
                       }}
-                      className="p-2 rounded-lg bg-red-500/20 border border-red-500/30 text-red-400 flex items-center justify-center gap-2 col-span-2"
+                      className="p-2 rounded-lg bg-red-500/20 border border-red-500/30 text-red-400 flex items-center justify-center gap-2"
                     >
                       <X className="w-4 h-4" />
-                      <span className="text-xs">Clear All</span>
+                      <span className="text-xs">Clear</span>
                     </motion.button>
                   </div>
 
-                  {/* Line Width Control */}
-                  <div>
-                    <p className="text-gray-400 text-xs mb-2">Line Width: {lineWidth}px</p>
-                    <input
-                      type="range"
-                      min="1"
-                      max="10"
-                      value={lineWidth}
-                      onChange={(e) => setLineWidth(Number(e.target.value))}
-                      className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer"
-                      style={{
-                        background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${(lineWidth - 1) * 11.11}%, rgba(255,255,255,0.1) ${(lineWidth - 1) * 11.11}%, rgba(255,255,255,0.1) 100%)`
-                      }}
-                    />
-                    <div className="flex justify-between text-gray-500 text-xs mt-1">
-                      <span>1</span>
-                      <span>10</span>
-                    </div>
-                  </div>
 
                   {/* Font Size Control (for text) */}
                   {currentTool === 'text' && (
@@ -1913,19 +2372,77 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                     </div>
                   </div>
 
-                  {/* Export Button */}
-                  {drawings.length > 0 && (
+                  {/* Action Buttons - Replace AI Images or Set Increment - Always Visible */}
+                  <div className="pt-2 border-t border-white/20 space-y-2">
+                      <p className="text-gray-400 text-xs mb-2 font-semibold">Apply Edits To:</p>
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => handleUseDrawnImageAs('model1')}
+                        disabled={!imageLoaded || uploadingImage === 'ai-model1'}
+                        className="w-full bg-blue-500/20 border border-blue-500/30 text-blue-300 font-semibold py-2 px-3 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 text-sm hover:bg-blue-500/30"
+                      >
+                        {uploadingImage === 'ai-model1' ? (
+                          <>
+                            <Loader className="w-4 h-4 animate-spin" />
+                            Replacing...
+                          </>
+                        ) : (
+                          <>
+                            <Edit2 className="w-4 h-4" />
+                            Replace AI Image 1
+                          </>
+                        )}
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => handleUseDrawnImageAs('model2')}
+                        disabled={!imageLoaded || uploadingImage === 'ai-model2'}
+                        className="w-full bg-blue-500/20 border border-blue-500/30 text-blue-300 font-semibold py-2 px-3 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 text-sm hover:bg-blue-500/30"
+                      >
+                        {uploadingImage === 'ai-model2' ? (
+                          <>
+                            <Loader className="w-4 h-4 animate-spin" />
+                            Replacing...
+                          </>
+                        ) : (
+                          <>
+                            <Edit2 className="w-4 h-4" />
+                            Replace AI Image 2
+                          </>
+                        )}
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => handleUseDrawnImageAs('increment')}
+                        disabled={!imageLoaded || uploadingImage === 'increment'}
+                        className="w-full bg-green-500/20 border border-green-500/30 text-green-300 font-semibold py-2 px-3 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 text-sm hover:bg-green-500/30"
+                      >
+                        {uploadingImage === 'increment' ? (
+                          <>
+                            <Loader className="w-4 h-4 animate-spin" />
+                            Setting...
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-4 h-4" />
+                            Set as Increment Image
+                          </>
+                        )}
+                      </motion.button>
                     <motion.button
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                       onClick={handleDownloadDrawnImage}
                       disabled={!imageLoaded}
-                      className="w-full bg-green-500/20 border border-green-500/30 text-green-300 font-semibold py-2 px-3 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 text-sm"
+                        className="w-full bg-gray-500/20 border border-gray-500/30 text-gray-300 font-semibold py-2 px-3 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 text-sm"
                     >
                       <Download className="w-4 h-4" />
-                      Export Image
+                        Download Edited Image
                     </motion.button>
-                  )}
+                    </div>
 
                   {/* Selected Drawing Controls */}
                   {selectedDrawingId && (
@@ -1946,43 +2463,19 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                       </div>
                     </div>
                   )}
-                </div>
-              </div>
             </div>
           </div>
 
-          {/* Save Comments Button */}
-          <div className="flex justify-end mb-4">
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={handleSaveComments}
-              disabled={savingComments}
-              className="px-6 py-2 bg-blue-500/20 border border-blue-500/30 text-blue-400 font-semibold rounded-lg flex items-center gap-2 disabled:opacity-50"
-            >
-              {savingComments ? (
-                <>
-                  <Loader className="w-4 h-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4" />
-                  Save Comments
-                </>
-              )}
-            </motion.button>
-          </div>
-
-          {/* Active Image with Canvas for Drawing (Full Width) */}
-          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4 mb-4">
+              {/* Canvas Section - Always shows Original Image */}
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4">
             <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
               <ImageIcon className="w-5 h-5" />
-              {activeImageType === 'original' ? 'Today Original Image' : 
-               activeImageType === 'previous' ? 'Previous Day Image' :
-               activeImageType === 'ai1' ? 'AI Model 1 Image' :
-               activeImageType === 'ai2' ? 'AI Model 2 Image' :
-               'Increment Image'} (Drawing Canvas)
+                  Edit Original Image
+                  {drawings.length > 0 && (
+                    <span className="ml-2 px-2 py-0.5 bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 text-xs rounded">
+                      {drawings.length} edit{drawings.length !== 1 ? 's' : ''}
+                    </span>
+                  )}
             </h3>
             <div className="relative overflow-hidden rounded-lg bg-black flex items-center justify-center" ref={containerRef} style={{ minHeight: '500px', maxHeight: '70vh' }}>
               {activeImageBlobUrl && (
@@ -2077,49 +2570,13 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                 className="w-full h-full"
                 style={{ maxHeight: '70vh', objectFit: 'contain', cursor: currentTool === 'none' ? 'grab' : currentTool === 'text' ? 'text' : 'crosshair' }}
               />
-              {/* Text Input Dialog */}
-              {textInputPosition && canvasRef.current && imageRef.current && (
+              {/* Text Input Dialog - Positioned at exact click location */}
+              {textInputPosition && canvasRef.current && (
                 <div 
                   className="text-input-dialog absolute bg-white/95 backdrop-blur-lg rounded-lg p-3 shadow-xl z-[100] border-2 border-blue-500"
                   style={{
-                    left: `${(() => {
-                      const canvas = canvasRef.current!;
-                      const img = imageRef.current!;
-                      const rect = canvas.getBoundingClientRect();
-                      const imgAspect = img.naturalWidth / img.naturalHeight;
-                      const canvasAspect = rect.width / rect.height;
-                      let drawWidth = rect.width;
-                      let drawHeight = rect.height;
-                      let drawX = 0;
-                      if (imgAspect > canvasAspect) {
-                        drawHeight = rect.width / imgAspect;
-                      } else {
-                        drawWidth = rect.height * imgAspect;
-                        drawX = (rect.width - drawWidth) / 2;
-                      }
-                      // Convert image coordinates to canvas coordinates
-                      const canvasX = drawX + (textInputPosition.x / img.naturalWidth) * (drawWidth / zoom) + imageOffset.x;
-                      return Math.min(Math.max(canvasX, 10), rect.width - 220); // Keep within bounds
-                    })()}px`,
-                    top: `${(() => {
-                      const canvas = canvasRef.current!;
-                      const img = imageRef.current!;
-                      const rect = canvas.getBoundingClientRect();
-                      const imgAspect = img.naturalWidth / img.naturalHeight;
-                      const canvasAspect = rect.width / rect.height;
-                      let drawWidth = rect.width;
-                      let drawHeight = rect.height;
-                      let drawY = 0;
-                      if (imgAspect > canvasAspect) {
-                        drawHeight = rect.width / imgAspect;
-                        drawY = (rect.height - drawHeight) / 2;
-                      } else {
-                        drawWidth = rect.height * imgAspect;
-                      }
-                      // Convert image coordinates to canvas coordinates
-                      const canvasY = drawY + (textInputPosition.y / img.naturalHeight) * (drawHeight / zoom) + imageOffset.y - 40;
-                      return Math.min(Math.max(canvasY, 10), rect.height - 80); // Keep within bounds
-                    })()}px`,
+                    left: `${Math.min(Math.max(textInputPosition.canvasX, 10), canvasRef.current.getBoundingClientRect().width - 220)}px`,
+                    top: `${Math.min(Math.max(textInputPosition.canvasY - 40, 10), canvasRef.current.getBoundingClientRect().height - 80)}px`,
                     pointerEvents: 'auto'
                   }}
                   onClick={(e) => {
@@ -2198,9 +2655,169 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                     className="px-3 py-2 border-2 border-blue-300 rounded-lg text-black text-sm w-52 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                     placeholder="Type your text here..."
                   />
-                  <p className="text-xs text-gray-500 mt-2">Press Enter to confirm, Esc to cancel</p>
+                  <p className="text-xs text-gray-500 mt-2">Press Enter to confirm, Esc to cancel                  </p>
                 </div>
               )}
+            </div>
+          </div>
+            </div>
+
+            {/* Right Column: Comparison Panel (40%) */}
+            <div className="lg:col-span-2 space-y-4">
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4">
+                <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                  <Eye className="w-5 h-5" />
+                  Reference Images
+                </h3>
+                <div className="space-y-4">
+                  {/* AI Model 1 */}
+                  <div className="bg-white/5 rounded-lg p-3 border border-white/10">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-white font-medium text-sm">AI Model 1</h4>
+                      {selectedImage.aiProcessingStatus === 'processing' && (
+                        <span className="px-2 py-0.5 bg-blue-500/20 border border-blue-500/30 text-blue-400 text-xs rounded">
+                          Processing...
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative aspect-video bg-black rounded-lg mb-2 overflow-hidden">
+                      {aiProcessedImageBlobUrls[0] ? (
+                        <img src={aiProcessedImageBlobUrls[0]} alt="AI Model 1" className="w-full h-full object-contain" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-500">
+                          <ImageIcon className="w-8 h-8" />
+                        </div>
+                      )}
+                    </div>
+                    <textarea
+                      value={comments.ai1 || ''}
+                      onChange={(e) => setComments(prev => ({ ...prev, ai1: e.target.value }))}
+                      placeholder="Add comment for AI Model 1..."
+                      className="w-full px-2 py-1 bg-white/10 border border-white/20 rounded text-white text-xs placeholder-gray-500 focus:outline-none focus:border-blue-500 resize-none"
+                      rows={2}
+                    />
+                  </div>
+
+                  {/* AI Model 2 */}
+                  <div className="bg-white/5 rounded-lg p-3 border border-white/10">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-white font-medium text-sm">AI Model 2</h4>
+                      {selectedImage.aiProcessingStatus === 'processing' && (
+                        <span className="px-2 py-0.5 bg-blue-500/20 border border-blue-500/30 text-blue-400 text-xs rounded">
+                          Processing...
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative aspect-video bg-black rounded-lg mb-2 overflow-hidden">
+                      {aiProcessedImageBlobUrls[1] ? (
+                        <img src={aiProcessedImageBlobUrls[1]} alt="AI Model 2" className="w-full h-full object-contain" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-500">
+                          <ImageIcon className="w-8 h-8" />
+                        </div>
+                      )}
+                    </div>
+                    <textarea
+                      value={comments.ai2 || ''}
+                      onChange={(e) => setComments(prev => ({ ...prev, ai2: e.target.value }))}
+                      placeholder="Add comment for AI Model 2..."
+                      className="w-full px-2 py-1 bg-white/10 border border-white/20 rounded text-white text-xs placeholder-gray-500 focus:outline-none focus:border-blue-500 resize-none"
+                      rows={2}
+                    />
+                  </div>
+
+                  {/* Previous Day */}
+                  <div className="bg-white/5 rounded-lg p-3 border border-white/10">
+                    <h4 className="text-white font-medium text-sm mb-2">Previous Day</h4>
+                    <div className="relative aspect-video bg-black rounded-lg mb-2 overflow-hidden">
+                      {previousImageBlobUrl ? (
+                        <img src={previousImageBlobUrl} alt="Previous Day" className="w-full h-full object-contain" />
+                      ) : loadingPrevious ? (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Loader className="w-6 h-6 animate-spin text-blue-400" />
+                        </div>
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-500">
+                          <span className="text-xs">No previous day image</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Increment Image */}
+                  <div className="bg-white/5 rounded-lg p-3 border border-white/10">
+                    <h4 className="text-white font-medium text-sm mb-2">Increment Image</h4>
+                    <div className="relative aspect-video bg-black rounded-lg mb-2 overflow-hidden">
+                      {incrementImageBlobUrl ? (
+                        <img 
+                          key={incrementImageBlobUrl} 
+                          src={incrementImageBlobUrl} 
+                          alt="Increment" 
+                          className="w-full h-full object-contain"
+                          onError={(e) => {
+                            console.error('[ManualInspection] Failed to load increment image in img tag');
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-500">
+                          <span className="text-xs">No increment image yet</span>
+                        </div>
+                      )}
+                    </div>
+                    <textarea
+                      value={comments.increment || ''}
+                      onChange={(e) => setComments(prev => ({ ...prev, increment: e.target.value }))}
+                      placeholder="Add comment for increment image..."
+                      className="w-full px-2 py-1 bg-white/10 border border-white/20 rounded text-white text-xs placeholder-gray-500 focus:outline-none focus:border-blue-500 resize-none"
+                      rows={2}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Save Comments & Actions */}
+              <div className="space-y-2">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleSaveComments}
+                  disabled={savingComments}
+                  className="w-full bg-blue-500/20 border border-blue-500/30 text-blue-400 font-semibold py-2 px-4 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 text-sm"
+                >
+                  {savingComments ? (
+                    <>
+                      <Loader className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      Save Comments
+                    </>
+                  )}
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleSaveAnnotations}
+                  disabled={savingAnnotations}
+                  className="w-full bg-blue-500/20 border border-blue-500/30 text-blue-400 font-semibold py-2 px-4 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 text-sm"
+                >
+                  <Save className="w-4 h-4" />
+                  {savingAnnotations ? 'Saving...' : 'Save Annotations'}
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleApprove}
+                  disabled={approving}
+                  className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <CheckCircle className="w-5 h-5" />
+                  {approving ? 'Approving...' : 'Approve Image'}
+                </motion.button>
+              </div>
             </div>
           </div>
 
@@ -2246,31 +2863,6 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
               </div>
             </div>
           )}
-
-
-          {/* Actions */}
-          <div className="space-y-2 mb-4">
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={handleSaveAnnotations}
-              disabled={savingAnnotations}
-              className="w-full bg-blue-500/20 border border-blue-500/30 text-blue-400 font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              <Save className="w-4 h-4" />
-              {savingAnnotations ? 'Saving...' : 'Save Annotations'}
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={handleApprove}
-              disabled={approving}
-              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              <CheckCircle className="w-5 h-5" />
-              {approving ? 'Approving...' : 'Approve Image'}
-            </motion.button>
-          </div>
         </div>
       </div>
     );
@@ -2308,6 +2900,93 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
             <div className="text-left md:text-right">
               <p className="text-white font-semibold text-base md:text-lg">{pendingImages.length} Pending</p>
               <p className="text-gray-400 text-xs md:text-sm">Images queued</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Filters and Search */}
+      <div className="px-4 md:px-8 pb-4">
+        <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4 space-y-4">
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search by car number..."
+              className="w-full pl-10 pr-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Filters Row */}
+          <div className="flex flex-wrap gap-4 items-center">
+            {/* Sort By */}
+            <div className="flex items-center gap-2">
+              <label className="text-gray-400 text-sm">Sort by:</label>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
+              >
+                <option value="createdAt">Date Created</option>
+                <option value="carNumber">Car Number</option>
+                <option value="status">Status</option>
+              </select>
+            </div>
+
+            {/* Sort Order */}
+            <button
+              onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+              className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white hover:bg-white/20 flex items-center gap-2"
+            >
+              {sortOrder === 'desc' ? <SortDesc className="w-4 h-4" /> : <SortAsc className="w-4 h-4" />}
+              <span className="text-sm">{sortOrder === 'desc' ? 'Desc' : 'Asc'}</span>
+            </button>
+
+            {/* Status Filter */}
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-gray-400" />
+              <select
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
+              >
+                <option value="all">All Status</option>
+                <option value="PENDING">Pending</option>
+                <option value="IN_REVIEW">In Review</option>
+                <option value="APPROVED">Approved</option>
+                <option value="REJECTED">Rejected</option>
+              </select>
+            </div>
+
+            {/* Page Size */}
+            <div className="flex items-center gap-2 ml-auto">
+              <label className="text-gray-400 text-sm">Per page:</label>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
+              >
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
             </div>
           </div>
         </div>
@@ -2359,29 +3038,115 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                   exit={{ opacity: 0, y: -20 }}
                   transition={{ delay: index * 0.05 }}
                   whileHover={{ scale: 1.02 }}
-                  className="bg-white/10 backdrop-blur-lg rounded-xl p-4 border border-white/20 hover:border-white/30 cursor-pointer transition-all duration-200"
-                  onClick={() => handleImageClick(image)}
+                  className={`bg-white/10 backdrop-blur-lg rounded-xl p-4 border transition-all duration-200 ${
+                    image.lockInfo?.isLocked && !image.lockInfo?.isCurrentUser
+                      ? 'border-red-500/50 opacity-60 cursor-not-allowed'
+                      : 'border-white/20 hover:border-white/30 cursor-pointer'
+                  }`}
+                  onClick={() => {
+                    if (!image.lockInfo?.isLocked || image.lockInfo?.isCurrentUser) {
+                      handleImageClick(image);
+                    }
+                  }}
                 >
                   <div className="relative aspect-video bg-black rounded-lg mb-3 overflow-hidden">
                     <ImageThumbnail image={image} />
                     <div className="absolute top-2 right-2 bg-yellow-500/90 text-black text-xs font-bold px-2 py-1 rounded">
                       #{image.processingOrder}
                     </div>
+                    {/* Lock Indicator */}
+                    {image.lockInfo?.isLocked && (
+                      <div className={`absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold ${
+                        image.lockInfo.isCurrentUser 
+                          ? 'bg-green-500/90 text-white' 
+                          : 'bg-red-500/90 text-white'
+                      }`}>
+                        <Lock className="w-3 h-3" />
+                        {image.lockInfo.isCurrentUser ? 'You' : 'Locked'}
+                      </div>
+                    )}
+                    {/* Disabled overlay for locked images */}
+                    {image.lockInfo?.isLocked && !image.lockInfo?.isCurrentUser && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                        <div className="text-center">
+                          <Lock className="w-8 h-8 text-red-400 mx-auto mb-2" />
+                          <p className="text-red-400 text-xs font-semibold">Locked</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
                       <p className="text-white font-semibold text-sm">{image.carNumber}</p>
-                      <span className="px-2 py-1 bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 text-xs rounded">
-                        <Clock className="w-3 h-3 inline mr-1" />
-                        PENDING
+                      <span className={`px-2 py-1 border text-xs rounded ${getStatusBadgeColor(image.inspectionStatus)}`}>
+                        {image.inspectionStatus}
                       </span>
                     </div>
                     <p className="text-gray-400 text-xs">{getImageTypeLabel(image.imageType)}</p>
                     <p className="text-gray-500 text-xs">Inspection #{image.inspectionId}</p>
+                    {image.lockInfo?.isLocked && !image.lockInfo?.isCurrentUser && image.lockInfo?.lockedAt && (
+                      <p className="text-red-400 text-xs">
+                        Inspected by another user {formatLockTime(image.lockInfo.lockedAt)}
+                      </p>
+                    )}
                   </div>
                 </motion.div>
               ))}
             </AnimatePresence>
+          </div>
+        )}
+
+        {/* Pagination */}
+        {pagination && pagination.totalPages > 1 && (
+          <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 bg-white/10 backdrop-blur-lg rounded-xl p-4">
+            <div className="text-white text-sm">
+              Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, pagination.total)} of {pagination.total} images
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={!pagination.hasPrevious}
+                className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Previous
+              </button>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+                  let pageNum: number;
+                  if (pagination.totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= pagination.totalPages - 2) {
+                    pageNum = pagination.totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={`px-3 py-2 rounded-lg text-sm ${
+                        currentPage === pageNum
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-white/10 border border-white/20 text-white hover:bg-white/20'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(pagination.totalPages, prev + 1))}
+                disabled={!pagination.hasNext}
+                className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+              >
+                Next
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         )}
       </div>

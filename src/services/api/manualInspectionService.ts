@@ -20,12 +20,19 @@ export interface ImageComments {
   increment?: string;
 }
 
+export interface LockInfo {
+  isLocked: boolean;
+  lockedBy?: string;
+  lockedAt?: string;
+  isCurrentUser: boolean;
+}
+
 export interface InspectionImage {
   id: number;
   imageUrl: string; // S3 URL (direct access may cause 403)
   streamUrl: string; // Backend proxy URL - use this for displaying images
   imageType: string;
-  inspectionStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
+  inspectionStatus: 'PENDING' | 'IN_REVIEW' | 'APPROVED' | 'REJECTED';
   processingOrder: number;
   createdAt: string;
   approvedAt: string | null;
@@ -47,12 +54,27 @@ export interface InspectionImage {
   incrementImageUrl?: string; // S3 URL for increment image
   incrementImageStreamUrl?: string; // Backend stream URL for increment image
   imageComments?: ImageComments; // Comments for each image type
+  // Lock information
+  lockInfo?: LockInfo;
+}
+
+export interface PaginationInfo {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrevious: boolean;
 }
 
 export interface PendingImagesResponse {
   success: boolean;
   images: InspectionImage[];
   count: number;
+  pagination?: PaginationInfo;
+  filters?: {
+    availableStatuses: string[];
+  };
 }
 
 export interface PreviousDayImageResponse {
@@ -104,11 +126,17 @@ export interface InspectionDetailsResponse {
 // API Service Functions
 
 /**
- * Get pending images for manual inspection
+ * Get pending images for manual inspection with sorting, filtering, search, and pagination
  */
 export async function getPendingImages(params?: {
   clientName?: string;
   inspectionId?: number;
+  sortBy?: 'createdAt' | 'carNumber' | 'status';
+  sortOrder?: 'asc' | 'desc';
+  status?: 'PENDING' | 'IN_REVIEW' | 'APPROVED' | 'REJECTED';
+  search?: string;
+  page?: number;
+  limit?: number;
 }): Promise<PendingImagesResponse> {
   console.log('[ManualInspectionService] getPendingImages called with params:', params);
   const queryParams = new URLSearchParams();
@@ -117,6 +145,24 @@ export async function getPendingImages(params?: {
   }
   if (params?.inspectionId) {
     queryParams.append('inspectionId', params.inspectionId.toString());
+  }
+  if (params?.sortBy) {
+    queryParams.append('sortBy', params.sortBy);
+  }
+  if (params?.sortOrder) {
+    queryParams.append('sortOrder', params.sortOrder);
+  }
+  if (params?.status) {
+    queryParams.append('status', params.status);
+  }
+  if (params?.search) {
+    queryParams.append('search', params.search);
+  }
+  if (params?.page) {
+    queryParams.append('page', params.page.toString());
+  }
+  if (params?.limit) {
+    queryParams.append('limit', params.limit.toString());
   }
   
   const queryString = queryParams.toString();
@@ -299,6 +345,75 @@ export async function updateImageComments(
   const { data } = await apiClient.post<UpdateImageCommentsResponse>(
     `/api/manual-inspection/images/${imageId}/comments`,
     request
+  );
+  return data;
+}
+
+/**
+ * Access Control
+ */
+export interface CheckAccessResponse {
+  success: boolean;
+  hasAccess: boolean;
+  userId?: string;
+  message?: string;
+}
+
+export async function checkDashboardAccess(): Promise<CheckAccessResponse> {
+  const { data } = await apiClient.get<CheckAccessResponse>(
+    '/api/manual-inspection/dashboard/check-access'
+  );
+  return data;
+}
+
+/**
+ * Image Locking
+ */
+export interface LockImageResponse {
+  success: boolean;
+  message: string;
+  imageId: number;
+  lockedBy: string;
+}
+
+export interface UnlockImageResponse {
+  success: boolean;
+  message: string;
+  imageId: number;
+}
+
+export interface LockStatusResponse {
+  success: boolean;
+  isLocked: boolean;
+  lockedBy?: string;
+  lockedAt?: string;
+  isCurrentUser: boolean;
+}
+
+export async function lockImage(imageId: number): Promise<LockImageResponse> {
+  const { data } = await apiClient.post<LockImageResponse>(
+    `/api/manual-inspection/images/${imageId}/lock`
+  );
+  return data;
+}
+
+export async function unlockImage(imageId: number): Promise<UnlockImageResponse> {
+  const { data } = await apiClient.post<UnlockImageResponse>(
+    `/api/manual-inspection/images/${imageId}/unlock`
+  );
+  return data;
+}
+
+export async function getLockStatus(imageId: number): Promise<LockStatusResponse> {
+  const { data } = await apiClient.get<LockStatusResponse>(
+    `/api/manual-inspection/images/${imageId}/lock-status`
+  );
+  return data;
+}
+
+export async function sendLockHeartbeat(imageId: number): Promise<{ success: boolean }> {
+  const { data } = await apiClient.post<{ success: boolean }>(
+    `/api/manual-inspection/images/${imageId}/lock/heartbeat`
   );
   return data;
 }

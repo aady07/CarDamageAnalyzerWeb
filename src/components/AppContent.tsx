@@ -11,6 +11,7 @@ import Login from './Login';
 import { useCognitoAuth } from '../hooks/useCognitoAuth.js';
 import { checkAdminStatus } from '../services/api/adminService';
 import { checkClientAccess } from '../services/api/clientService';
+import { checkDashboardAccess } from '../services/api/manualInspectionService';
 import logo from '../assets/images/logo.svg';
 
 export type ScreenType = 'landing' | 'rules' | 'camera' | 'dashboard' | 'admin' | 'clientDashboard' | 'refuxDashboard' | 'manualInspection';
@@ -28,6 +29,7 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [hasClientAccess, setHasClientAccess] = useState<boolean | null>(null);
   const [hasRefuxAccess, setHasRefuxAccess] = useState<boolean | null>(null);
+  const [hasInspectionDashboardAccess, setHasInspectionDashboardAccess] = useState<boolean | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const { isAuthenticated } = useCognitoAuth();
 
@@ -88,9 +90,19 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
         .catch(error => {
           setHasRefuxAccess(false);
         });
+      
+      // Check inspection dashboard access
+      checkDashboardAccess()
+        .then(response => {
+          setHasInspectionDashboardAccess(response.hasAccess);
+        })
+        .catch(error => {
+          setHasInspectionDashboardAccess(false);
+        });
     } else {
       setHasClientAccess(null);
       setHasRefuxAccess(null);
+      setHasInspectionDashboardAccess(null);
     }
   }, [isAuthed]);
 
@@ -119,8 +131,8 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
       return;
     }
 
-    // Protect manualInspection screen with admin check
-    if (screen === 'manualInspection' && isAdmin !== true) {
+    // Protect manualInspection screen with dashboard access check
+    if (screen === 'manualInspection' && hasInspectionDashboardAccess !== true) {
       return;
     }
     
@@ -207,7 +219,7 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
                         REFUX Dashboard
                         </motion.button>
                     )}
-                    {isAdmin === true && currentScreen !== 'manualInspection' && (
+                    {hasInspectionDashboardAccess === true && currentScreen !== 'manualInspection' && (
                       <motion.button
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}

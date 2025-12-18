@@ -250,3 +250,31 @@ export async function removeAdminAccess(userId: string): Promise<AddUserResponse
   const { data } = await apiClient.post<AddUserResponse>(`/api/admin/admins/${userId}/remove`);
   return data;
 }
+
+// Inspection Dashboard Management Types
+export interface InspectionDashboardUser {
+  userId: string;
+  addedAt?: string;
+}
+
+export interface InspectionDashboardUsersResponse {
+  success: boolean;
+  users: InspectionDashboardUser[];
+  count: number;
+}
+
+// Inspection Dashboard Management Functions
+export async function getInspectionDashboardUsers(): Promise<InspectionDashboardUsersResponse> {
+  const { data } = await apiClient.get<InspectionDashboardUsersResponse>('/api/admin/inspection-dashboard/users');
+  return data;
+}
+
+export async function addInspectionDashboardUser(userId: string): Promise<AddUserResponse> {
+  const { data } = await apiClient.post<AddUserResponse>('/api/admin/inspection-dashboard/users', { userId });
+  return data;
+}
+
+export async function removeInspectionDashboardUser(userId: string): Promise<AddUserResponse> {
+  const { data } = await apiClient.post<AddUserResponse>(`/api/admin/inspection-dashboard/users/${userId}/remove`);
+  return data;
+}

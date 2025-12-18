@@ -3,6 +3,7 @@ import AdminPanelLayout, { AdminPanelView } from './AdminPanelLayout';
 import ClientManagement from './ClientManagement';
 import AdminManagement from './AdminManagement';
 import InspectionManagement from './InspectionManagement';
+import InspectionDashboardManagement from './InspectionDashboardManagement';
 
 interface AdminPanelProps {
   onBack: () => void;
@@ -42,6 +43,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onBack }) => {
         return <AdminManagement onBack={onBack} />;
       case 'inspections':
         return <InspectionManagement onBack={onBack} />;
+      case 'inspection-dashboard':
+        return <InspectionDashboardManagement onBack={onBack} />;
       default:
         return null;
     }
