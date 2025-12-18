@@ -112,10 +112,61 @@ const getInitialSegmentStatuses = (): Record<CaptureSegmentId, SegmentStatus> =>
   CAPTURE_SEGMENTS.forEach((segment, index) => {
     statuses[segment.id] = index === 0 ? 'capturing' : 'pending';
   });
+  // Initialize manual capture segments as pending
+  statuses['front_floor_1'] = 'pending';
+  statuses['front_floor_2'] = 'pending';
+  statuses['rear_floor_1'] = 'pending';
+  statuses['rear_floor_2'] = 'pending';
   return statuses;
 };
 
 const TESTING_MODE_KEY = 'camera_testing_bypass_enabled';
+
+// Manual Capture Button Component - Shows after 5 seconds delay
+const ManualCaptureButton: React.FC<{
+  manualCapturePhase: 'none' | 'front_floor' | 'rear_floor';
+  manualCaptureIndex: number;
+  segmentStatuses: Record<CaptureSegmentId, SegmentStatus>;
+  onCapture: () => void;
+}> = ({ manualCapturePhase, manualCaptureIndex, segmentStatuses, onCapture }) => {
+  const [showButton, setShowButton] = useState(false);
+
+  useEffect(() => {
+    // Show button after 5 seconds
+    const timer = setTimeout(() => {
+      setShowButton(true);
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, [manualCapturePhase, manualCaptureIndex]);
+
+  if (!showButton) return null;
+
+  const currentSegmentId = manualCapturePhase === 'front_floor' 
+    ? (manualCaptureIndex === 0 ? 'front_floor_1' : 'front_floor_2')
+    : (manualCaptureIndex === 0 ? 'rear_floor_1' : 'rear_floor_2');
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="mt-4"
+    >
+      <motion.button
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        onClick={onCapture}
+        disabled={segmentStatuses[currentSegmentId] === 'verifying'}
+        className="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white font-bold py-4 px-6 rounded-xl shadow-lg text-lg"
+      >
+        {segmentStatuses[currentSegmentId] === 'verifying' 
+          ? 'Capturing...' 
+          : `Capture Photo ${manualCaptureIndex + 1}/2`}
+      </motion.button>
+    </motion.div>
+  );
+};
 
 const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete, onBack }) => {
   // Check for testing mode bypass
@@ -149,6 +200,9 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
   const [showArrowAfterVerify, setShowArrowAfterVerify] = useState(false);
   const [edgeDensity, setEdgeDensity] = useState(0);
   const [alignmentScore, setAlignmentScore] = useState(0);
+  // Manual capture phase state (after 10 stencils)
+  const [manualCapturePhase, setManualCapturePhase] = useState<'none' | 'front_floor' | 'rear_floor'>('none');
+  const [manualCaptureIndex, setManualCaptureIndex] = useState(0); // 0 or 1 for front_floor_1/2 or rear_floor_1/2
   const isAnalyzingRef = useRef<boolean>(false); // Use ref instead of state to avoid recreating function
   const completeScanRef = useRef<(() => Promise<void>) | null>(null); // Store completeScan function to avoid dependency issues
   const stencilImageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map()); // Cache loaded stencil images
@@ -445,6 +499,42 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     previousFrameRef.current = null;
   }, [currentStencilIndex]);
 
+  // Send single image to Android immediately after capture using queueImage
+  const sendImageToAndroid = useCallback(async (segmentId: CaptureSegmentId, imageDataUrl: string): Promise<boolean> => {
+    try {
+      const bridge = (window as any)?.AndroidBridge;
+      if (!bridge) {
+        console.warn('[Android] Bridge not available, skipping immediate send');
+        return false;
+      }
+
+      // Use queueImage method (new Android bridge method)
+      if (bridge.queueImage) {
+        const carNumber = vehicleDetails?.regNumber || '';
+        
+        // Convert data URL to base64
+        const base64Data = imageDataUrl.split(',')[1] || imageDataUrl;
+        
+        // Use segmentId as imageType (the part name)
+        const imageType = segmentId;
+        
+        console.log(`[Android] Queueing image ${segmentId} to Android via queueImage...`);
+        console.log(`[Android] CarNumber: ${carNumber}, ImageType: ${imageType}`);
+        
+        await bridge.queueImage(carNumber, base64Data, imageType);
+        
+        console.log(`[Android] ✓ Image ${segmentId} queued to Android successfully`);
+        return true;
+      } else {
+        console.warn(`[Android] queueImage method not available on bridge`);
+        return false;
+      }
+    } catch (error) {
+      console.error(`[Android] Error queueing image ${segmentId} to Android:`, error);
+      return false;
+    }
+  }, [vehicleDetails]);
+
   // Image capture function - must be defined before useEffect that uses it
   const captureImage = useCallback(
     async (segmentId: CaptureSegmentId, segmentIndex: number): Promise<boolean> => {
@@ -473,8 +563,12 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         });
 
         storedImagesRef.current[segmentId] = storedReference;
-        console.log(`[Capture] ✓ Image uploaded for ${segmentId}:`, storedReference.uri);
-        console.log(`[Capture] Total images uploaded so far: ${Object.keys(storedImagesRef.current).length}/${CAPTURE_SEGMENTS.length}`);
+        console.log(`[Capture] ✓ Image saved locally for ${segmentId}:`, storedReference.uri);
+        console.log(`[Capture] Total images saved so far: ${Object.keys(storedImagesRef.current).length}`);
+
+        // Send image to Android immediately after saving locally
+        // Pass the original data URL, not the URI (since we're using queueImage now)
+        await sendImageToAndroid(segmentId, imageSrc);
 
         // Mark as verified
         setSegmentStatuses((prev) => ({ ...prev, [segmentId]: 'verified' }));
@@ -487,13 +581,98 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         return false;
       }
     },
-    []
+    [sendImageToAndroid]
   );
 
   // Update ref whenever captureImage changes
   useEffect(() => {
     captureImageRef.current = captureImage;
   }, [captureImage]);
+
+  // Manual capture function (for floor images without stencil)
+  const captureManualImage = useCallback(async (segmentId: 'front_floor_1' | 'front_floor_2' | 'rear_floor_1' | 'rear_floor_2'): Promise<boolean> => {
+    try {
+      if (!webcamRef.current) {
+        console.error(`[Manual Capture] Webcam not available for ${segmentId}`);
+        return false;
+      }
+
+      const imageSrc = webcamRef.current.getScreenshot();
+      if (!imageSrc) {
+        console.error(`[Manual Capture] Failed to get screenshot for ${segmentId}`);
+        return false;
+      }
+
+      console.log(`[Manual Capture] Capturing ${segmentId}...`);
+
+      // Set status to verifying
+      setSegmentStatuses((prev) => ({ ...prev, [segmentId]: 'verifying' }));
+
+      // Save image to local storage
+      const storedReference = await storageStrategyRef.current.persist({
+        segmentId,
+        dataUrl: imageSrc,
+        contentType: 'image/jpeg',
+      });
+
+      storedImagesRef.current[segmentId] = storedReference;
+      console.log(`[Manual Capture] ✓ Image saved locally for ${segmentId}:`, storedReference.uri);
+
+      // Send image to Android immediately using queueImage
+      await sendImageToAndroid(segmentId, imageSrc);
+
+      // Mark as verified
+      setSegmentStatuses((prev) => ({ ...prev, [segmentId]: 'verified' }));
+
+      return true;
+    } catch (error) {
+      console.error(`[Manual Capture] Error capturing ${segmentId}:`, error);
+      setSegmentStatuses((prev) => ({ ...prev, [segmentId]: 'failed' }));
+      return false;
+    }
+  }, [sendImageToAndroid]);
+
+  // Handle manual capture button click
+  const handleManualCapture = useCallback(async () => {
+    let segmentId: 'front_floor_1' | 'front_floor_2' | 'rear_floor_1' | 'rear_floor_2';
+    
+    if (manualCapturePhase === 'front_floor') {
+      segmentId = manualCaptureIndex === 0 ? 'front_floor_1' : 'front_floor_2';
+    } else {
+      segmentId = manualCaptureIndex === 0 ? 'rear_floor_1' : 'rear_floor_2';
+    }
+
+    const success = await captureManualImage(segmentId);
+    
+    if (success) {
+      // Move to next manual capture
+      if (manualCaptureIndex === 0) {
+        // Move to second image in current phase
+        setManualCaptureIndex(1);
+        } else {
+          // Completed current phase, move to next
+          if (manualCapturePhase === 'front_floor') {
+            // Move to rear floor phase - show instruction for 5 seconds first, button will appear after
+            setManualCapturePhase('rear_floor');
+            setManualCaptureIndex(0);
+            setCurrentInstruction({ 
+              text: 'Open rear door & Point the camera toward the rear floor area. Capture clear photo of water bottles placed inside car', 
+              arrowDirection: 'none' 
+            });
+          } else {
+          // All manual captures done, complete scan
+          console.log('[Manual Capture] All 14 images captured, completing scan...');
+          setTimeout(() => {
+            if (completeScanRef.current) {
+              completeScanRef.current();
+            } else {
+              setStatus('processing');
+            }
+          }, 500);
+        }
+      }
+    }
+  }, [manualCapturePhase, manualCaptureIndex, captureManualImage]);
 
   // Continuous edge analysis when recording
   useEffect(() => {
@@ -656,47 +835,18 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
               }, 5000); // Wait 5 seconds before showing next stencil
             } else {
               console.log(`[Stencil Progression] All ${stencilImages.length} stencils completed!`);
-              // All stencils verified, check if all images are uploaded and submit claim
-              // Use a ref to access completeScan to avoid dependency issues
+              // All 10 stencils completed, transition to manual capture phase
               setTimeout(() => {
                 const uploadedCount = Object.keys(storedImagesRef.current).length;
-                console.log(`[Stencil Progression] All stencils done. Uploaded images: ${uploadedCount}/${CAPTURE_SEGMENTS.length}`);
-                if (uploadedCount === CAPTURE_SEGMENTS.length) {
-                  console.log(`[Stencil Progression] All images uploaded, submitting claim...`);
-                  if (completeScanRef.current) {
-                    completeScanRef.current();
-                  } else {
-                    console.warn(`[Stencil Progression] completeScan not available yet, will retry...`);
-                    setTimeout(() => {
-                      if (completeScanRef.current) {
-                        completeScanRef.current();
-                      } else {
-                        setStatus('processing');
-                      }
-                    }, 1000);
-                  }
-                } else {
-                  console.warn(`[Stencil Progression] Not all images uploaded (${uploadedCount}/${CAPTURE_SEGMENTS.length}), waiting...`);
-                  // Wait a bit more and try again
-                  setTimeout(() => {
-                    const finalCount = Object.keys(storedImagesRef.current).length;
-                    if (finalCount === CAPTURE_SEGMENTS.length) {
-                      console.log(`[Stencil Progression] All images now uploaded, submitting claim...`);
-                      if (completeScanRef.current) {
-                        completeScanRef.current();
-                      } else {
-                        setStatus('processing');
-                      }
-                    } else {
-                      console.error(`[Stencil Progression] Still missing images (${finalCount}/${CAPTURE_SEGMENTS.length}), submitting anyway...`);
-                      if (completeScanRef.current) {
-                        completeScanRef.current();
-                      } else {
-                        setStatus('processing');
-                      }
-                    }
-                  }, 3000);
-                }
+                console.log(`[Stencil Progression] All 10 stencils done. Uploaded images: ${uploadedCount}`);
+                console.log(`[Manual Capture] Transitioning to manual capture phase (front floor)...`);
+                // Transition to manual capture for front floor images
+                setManualCapturePhase('front_floor');
+                setManualCaptureIndex(0);
+                setCurrentInstruction({ 
+                  text: 'Open front door & Point the camera toward the front floor area (driver/passenger side). Capture clear photo of tissue paper placed at dashboard', 
+                  arrowDirection: 'none' 
+                });
               }, 2000);
             }
             
@@ -955,15 +1105,23 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       // Gather persisted image references in capture order
       console.log('[Android] Gathering image references...');
       console.log('[Android] storedImagesRef contents:', Object.keys(storedImagesRef.current));
-      const imageReferences = CAPTURE_SEGMENTS.map((segment) => {
-        const storedReference = storedImagesRef.current[segment.id];
+      // Include all 14 images: 10 stencil images + 4 manual capture images
+      const allSegmentIds: CaptureSegmentId[] = [
+        ...CAPTURE_SEGMENTS.map(s => s.id),
+        'front_floor_1',
+        'front_floor_2',
+        'rear_floor_1',
+        'rear_floor_2'
+      ];
+      const imageReferences = allSegmentIds.map((segmentId) => {
+        const storedReference = storedImagesRef.current[segmentId];
         if (!storedReference) return undefined;
         return {
-          segmentId: segment.id,
+          segmentId: segmentId,
           localPath: storedReference.uri // Android local file path
         };
       }).filter((entry): entry is { segmentId: CaptureSegmentId; localPath: string } => Boolean(entry));
-      console.log('[Android] ✅ Gathered image references:', imageReferences.length, 'images');
+      console.log('[Android] ✅ Gathered image references:', imageReferences.length, 'images (expected 14)');
 
       // Logging: Count of saved images
       const totalSavedImages = Object.keys(storedImagesRef.current).length;
@@ -1429,8 +1587,8 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
           }}
         />
         
-        {/* Stencil Overlay - Only show when recording */}
-        {status === 'recording' && currentStencilIndex < stencilImages.length && (
+        {/* Stencil Overlay - Only show when recording and NOT in manual capture phase */}
+        {status === 'recording' && currentStencilIndex < stencilImages.length && manualCapturePhase === 'none' && (
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center px-4 md:px-6">
             <motion.div
               key={currentStencilIndex}
@@ -1815,11 +1973,11 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         </div>
       )}
 
-      {/* Single Clean Instruction Box - Below Alignment Box */}
+      {/* Single Clean Instruction Box - Below Alignment Box, moved up for manual capture */}
       {status === 'recording' && currentInstruction.text && (
-        <div className="absolute top-32 md:top-36 left-1/2 transform -translate-x-1/2 z-50 text-center px-4 w-full max-w-md">
+        <div className={`absolute left-1/2 transform -translate-x-1/2 z-50 text-center px-4 w-full max-w-md ${manualCapturePhase !== 'none' ? 'top-20 md:top-24' : 'top-32 md:top-36'}`}>
           <motion.div
-            key={`instruction-${currentStencilIndex}`}
+            key={`instruction-${manualCapturePhase}-${manualCaptureIndex}-${currentStencilIndex}`}
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
@@ -1829,8 +1987,8 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
               boxShadow: '0 10px 40px rgba(59, 130, 246, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3)'
             }}
           >
-            {/* Success Checkmark (only when verified) */}
-            {stencilVerified && (
+            {/* Success Checkmark (only when verified for stencils, not for manual capture) */}
+            {stencilVerified && manualCapturePhase === 'none' && currentStencilIndex < stencilImages.length && (
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: [1, 1.15, 1] }}
@@ -1851,6 +2009,16 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
               {currentInstruction.text.replace(/←|→|↓/g, '').trim()}
             </h3>
           </motion.div>
+          
+          {/* Manual Capture Button - Show when in manual capture phase, after 5 seconds delay */}
+          {manualCapturePhase !== 'none' && (
+            <ManualCaptureButton
+              manualCapturePhase={manualCapturePhase}
+              manualCaptureIndex={manualCaptureIndex}
+              segmentStatuses={segmentStatuses}
+              onCapture={handleManualCapture}
+            />
+          )}
         </div>
       )}
 

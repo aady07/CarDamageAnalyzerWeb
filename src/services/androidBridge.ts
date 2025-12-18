@@ -15,6 +15,15 @@ export interface AndroidBridge {
   savePendingInspection: (inspectionDataJson: string) => Promise<string>;
   
   /**
+   * Send a single captured image to Android app immediately after capture
+   * This allows incremental image sending instead of sending all at once
+   * Returns success status
+   * 
+   * Note: Android bridge expects JSON string, not object
+   */
+  sendCapturedImage?: (imageDataJson: string) => Promise<boolean>;
+  
+  /**
    * Get the status of an inspection by local ID
    */
   getInspectionStatus: (localInspectionId: string) => Promise<InspectionStatus>;
