@@ -69,7 +69,6 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
 
 
   const log = useCallback((line: string) => {
-    console.log(`[DAMAGE-REPORT] ${line}`);
   }, []);
 
   // Fetch processed images and results for recent claims
@@ -212,7 +211,6 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
           url: window.location.href,
         });
       } catch (error) {
-        console.log('Error sharing:', error);
       }
     } else {
       // Fallback for browsers that don't support Web Share API
@@ -236,7 +234,6 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
           vehicleModel = parsed.model || vehicleModel;
         }
       } catch (e) {
-        console.warn('Could not parse vehicle details:', e);
       }
       
       await generateAndDownloadReport({
@@ -249,7 +246,6 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
         photoUrls: imageUrls,
       });
     } catch (e) {
-      console.error('Failed to generate PDF', e);
       alert('Failed to generate PDF');
     }
   };
@@ -443,12 +439,12 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
           <div className="glass-effect rounded-2xl p-6">
             {meanCost > 0 && (
               <div className="mb-4 flex items-center justify-between">
-                <span className="text-gray-300">Mean per-claim total ({claimIds.length} claims)</span>
-                <span className="text-blue-400 font-bold">₹{Math.round(meanCost).toLocaleString()}</span>
+                <span className="text-gray-300">Mean confidence score ({claimIds.length} claims)</span>
+                <span className="text-blue-400 font-bold">{Math.round(meanCost)}%</span>
               </div>
             )}
             {(!costings.length) && (
-              <div className="text-gray-400 text-sm">No costings yet. Processing may still be underway.</div>
+              <div className="text-gray-400 text-sm">No analysis yet. Processing may still be underway.</div>
             )}
             {costings.map((item, index) => (
               <div key={index} className="flex items-center justify-between mb-4 last:mb-0">
@@ -458,7 +454,7 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
                   </div>
                   <span className="text-white font-semibold">{item.part || 'Part'}</span>
                 </div>
-                <span className="text-gray-300 font-bold">₹{Number(item.price || 0).toLocaleString()}</span>
+                <span className="text-gray-300 font-bold">{item.confidence || 'N/A'}%</span>
               </div>
             ))}
             
@@ -469,10 +465,10 @@ const DamageReport: React.FC<DamageReportProps> = ({ onBack }) => {
                 <div className="w-9 h-9 bg-green-500 rounded-full flex items-center justify-center mr-3">
                   <CheckCircle className="w-4 h-4 text-white" />
                 </div>
-                <span className="text-white font-bold text-lg">Total Amount</span>
+                <span className="text-white font-bold text-lg">Overall Confidence</span>
               </div>
               <span className="text-green-400 font-bold text-2xl">
-                ₹{displayEstimate.toLocaleString()}
+                {displayEstimate}%
               </span>
             </div>
           </div>

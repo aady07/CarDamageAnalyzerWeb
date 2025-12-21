@@ -75,20 +75,14 @@ const UploadLimitsDisplay: React.FC<UploadLimitsDisplayProps> = ({ className = '
       <div className="space-y-2">
         {isUnlimited ? (
           <div className="text-green-400 text-sm font-medium">
-            Unlimited assessments available
+            Unlimited inspections available
           </div>
         ) : (
           <div className="space-y-1">
             <div className="flex justify-between items-center">
-              <span className="text-gray-300 text-sm">Remaining assessments:</span>
+              <span className="text-gray-300 text-sm">Remaining inspections:</span>
               <span className={`font-bold text-sm ${canPerformAssessment ? 'text-green-400' : 'text-red-400'}`}>
-                {remainingAssessments}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-300 text-sm">Remaining uploads:</span>
-              <span className="text-gray-200 text-sm">
-                {stats.remainingUploads} / {stats.uploadLimit}
+                {Math.floor(stats.remainingUploads / 4)} / {Math.floor(stats.uploadLimit / 4)}
               </span>
             </div>
           </div>
@@ -98,7 +92,7 @@ const UploadLimitsDisplay: React.FC<UploadLimitsDisplayProps> = ({ className = '
           <div className="mt-3 p-2 bg-red-500/20 border border-red-500/30 rounded-lg">
             <div className="flex items-center text-red-400 text-sm">
               <AlertTriangle className="w-4 h-4 mr-2" />
-              <span>Insufficient uploads for assessment (need 4)</span>
+              <span>Insufficient uploads for inspection (need 4)</span>
             </div>
           </div>
         )}
@@ -106,7 +100,7 @@ const UploadLimitsDisplay: React.FC<UploadLimitsDisplayProps> = ({ className = '
         {!isUnlimited && (
           <div className="mt-2 p-2 bg-blue-500/20 border border-blue-500/30 rounded-lg">
             <div className="text-blue-400 text-xs">
-              {tierInfo.upgradeMessage}
+              Upgrade to Premium for unlimited inspections
             </div>
           </div>
         )}

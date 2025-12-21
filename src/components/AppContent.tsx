@@ -3,15 +3,18 @@ import { motion, AnimatePresence } from 'framer-motion';
 import LandingScreen from './LandingScreen';
 import RulesScreen from './RulesScreen';
 import CameraScreen from './CameraScreen';
-import ManualUploadScreen from './ManualUploadScreen';
-import BufferingScreen from './BufferingScreen';
-import DamageReport from './DamageReport';
+import Dashboard from './Dashboard';
+import AdminPanel from './admin/AdminPanel';
+import ClientDashboard from './ClientDashboard';
+import ManualInspectionDashboard from './ManualInspectionDashboard';
 import Login from './Login';
 import { useCognitoAuth } from '../hooks/useCognitoAuth.js';
-import { useUploadLimitsContext } from '../contexts/UploadLimitsContext';
-import logo from '../assets/images/logo.png';
+import { checkAdminStatus } from '../services/api/adminService';
+import { checkClientAccess } from '../services/api/clientService';
+import { checkDashboardAccess } from '../services/api/manualInspectionService';
+import logo from '../assets/images/logo.svg';
 
-export type ScreenType = 'landing' | 'rules' | 'camera' | 'manual-upload' | 'buffering' | 'report';
+export type ScreenType = 'landing' | 'rules' | 'camera' | 'dashboard' | 'admin' | 'clientDashboard' | 'refuxDashboard' | 'manualInspection';
 
 interface AppContentProps {
   isAuthed: boolean | null;
@@ -23,44 +26,254 @@ interface AppContentProps {
 const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, onAuthSuccess }) => {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('landing');
   const [vehicleDetails, setVehicleDetails] = useState<{ make: string; model: string; regNumber: string } | null>(null);
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [hasClientAccess, setHasClientAccess] = useState<boolean | null>(null);
+  const [hasRefuxAccess, setHasRefuxAccess] = useState<boolean | null>(null);
+  const [hasInspectionDashboardAccess, setHasInspectionDashboardAccess] = useState<boolean | null>(null);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const { isAuthenticated } = useCognitoAuth();
-  const { refetch: refetchUploadLimits } = useUploadLimitsContext();
 
-  // Keep upload limits in sync with auth state (switching accounts without hard refresh)
+  // Close dropdown when clicking outside
   useEffect(() => {
-    // When auth state changes, refresh limits. This also clears limits on logout
-    // because the hook avoids calling the API when not authenticated.
-    refetchUploadLimits();
-  }, [isAuthed, refetchUploadLimits]);
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest('.dropdown-container')) {
+        setIsDropdownOpen(false);
+      }
+    };
+
+    if (isDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isDropdownOpen]);
+
+  // Check admin status when user is authenticated
+  useEffect(() => {
+    if (isAuthed === true) {
+      checkAdminStatus()
+        .then(response => {
+          setIsAdmin(response.isAdmin);
+        })
+        .catch(error => {
+          setIsAdmin(false);
+        });
+    } else {
+      setIsAdmin(null);
+    }
+  }, [isAuthed]);
+
+  // Check client access when user is authenticated
+  useEffect(() => {
+    if (isAuthed === true) {
+      // Check SNAPCABS access
+      checkClientAccess('SNAPCABS')
+        .then(response => {
+          setHasClientAccess(response.hasAccess);
+          // If user has client access and is on landing screen, redirect to client dashboard
+          if (response.hasAccess && currentScreen === 'landing') {
+            setCurrentScreen('clientDashboard');
+          }
+        })
+        .catch(error => {
+          setHasClientAccess(false);
+        });
+      
+      // Check REFUX access
+      checkClientAccess('REFUX')
+        .then(response => {
+          setHasRefuxAccess(response.hasAccess);
+        })
+        .catch(error => {
+          setHasRefuxAccess(false);
+        });
+      
+      // Check inspection dashboard access
+      checkDashboardAccess()
+        .then(response => {
+          setHasInspectionDashboardAccess(response.hasAccess);
+        })
+        .catch(error => {
+          setHasInspectionDashboardAccess(false);
+        });
+    } else {
+      setHasClientAccess(null);
+      setHasRefuxAccess(null);
+      setHasInspectionDashboardAccess(null);
+    }
+  }, [isAuthed]);
 
   const navigateTo = async (screen: ScreenType) => {
-    // Protect all screens except landing and rules with auth
-    const protectedScreens: ScreenType[] = ['camera', 'manual-upload', 'buffering', 'report'];
-    if (protectedScreens.includes(screen)) {
+    // Protect camera, dashboard, admin, clientDashboard, refuxDashboard, and manualInspection screens with auth
+    if (screen === 'camera' || screen === 'dashboard' || screen === 'admin' || screen === 'clientDashboard' || screen === 'refuxDashboard' || screen === 'manualInspection') {
       const ok = await isAuthenticated();
       if (!ok) {
         // Handle auth requirement - this should be handled by the parent App component
         return;
       }
     }
+    
+    // Protect admin screen with admin check
+    if (screen === 'admin' && isAdmin !== true) {
+      return;
+    }
+
+    // Protect clientDashboard screen with client access check
+    if (screen === 'clientDashboard' && hasClientAccess !== true) {
+      return;
+    }
+
+    // Protect refuxDashboard screen with REFUX access check
+    if (screen === 'refuxDashboard' && hasRefuxAccess !== true) {
+      return;
+    }
+
+    // Protect manualInspection screen with dashboard access check
+    if (screen === 'manualInspection' && hasInspectionDashboardAccess !== true) {
+      return;
+    }
+    
     setCurrentScreen(screen);
   };
 
   return (
     <div className="min-h-screen gradient-bg overflow-hidden">
-      {/* Top Row (hidden on camera screen to maximize space) */}
-      {currentScreen !== 'camera' && (
-        <div className="px-8 pt-0 flex items-center justify-between">
-          <img src={logo} alt="Logo" className="h-32 md:h-32 w-auto ml-0 md:ml-6" />
-          {isAuthed && (
-            <button
-              onClick={onLogout}
-              className="text-white/90 hover:text-white text-sm font-semibold bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg px-4 py-2"
-            >
-              Logout
-            </button>
-          )}
-        </div>
+      {/* Navbar (hidden on camera screen to maximize space) */}
+      {currentScreen !== 'camera' && currentScreen !== 'manualInspection' && (
+        <nav className="px-4 md:px-8 py-1 md:py-3">
+          <div className="flex items-center justify-between">
+            {/* Logo - Left Side */}
+            <img 
+              src={logo} 
+              alt="Logo" 
+              className="h-28 md:h-32" 
+            />
+            
+            {/* Navigation Menu - Right Side */}
+            {isAuthed && (
+              <div className="relative dropdown-container">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                  className="bg-white/10 hover:bg-white/20 backdrop-blur-xl rounded-full p-3 border border-white/20 hover:border-white/30 transition-all duration-300"
+                >
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+                </motion.button>
+                
+                {/* Dropdown Menu */}
+                <div className={`absolute right-0 top-full mt-2 w-48 bg-white/10 backdrop-blur-xl rounded-xl border border-white/20 shadow-2xl transition-all duration-300 z-50 ${isDropdownOpen ? 'opacity-100 visible' : 'opacity-0 invisible'}`}>
+                  <div className="py-2">
+                    {/* UNCOMMENT_DASHBOARD_NAV - Search for this to uncomment the Dashboard navigation menu item */}
+                    {/* {currentScreen !== 'dashboard' && (
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => {
+                          navigateTo('dashboard');
+                          setIsDropdownOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-3 text-white hover:bg-white/10 transition-colors duration-200 flex items-center gap-3"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5a2 2 0 012-2h4a2 2 0 012 2v2H8V5z" />
+                        </svg>
+                        Dashboard
+                      </motion.button>
+                    )} */}
+                    {hasClientAccess === true && currentScreen !== 'clientDashboard' && (
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => {
+                          navigateTo('clientDashboard');
+                          setIsDropdownOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-3 text-white hover:bg-white/10 transition-colors duration-200 flex items-center gap-3"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        Snap-E CABS Dashboard
+                        </motion.button>
+                    )}
+                    {hasRefuxAccess === true && currentScreen !== 'refuxDashboard' && (
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => {
+                          navigateTo('refuxDashboard');
+                          setIsDropdownOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-3 text-white hover:bg-white/10 transition-colors duration-200 flex items-center gap-3"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        REFEX Dashboard
+                        </motion.button>
+                    )}
+                    {hasInspectionDashboardAccess === true && (
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => {
+                          navigateTo('manualInspection');
+                          setIsDropdownOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-3 text-white hover:bg-white/10 transition-colors duration-200 flex items-center gap-3"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        Inspector Dashboard
+                      </motion.button>
+                    )}
+                    {isAdmin === true && currentScreen !== 'admin' && (
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => {
+                          navigateTo('admin');
+                          setIsDropdownOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-3 text-white hover:bg-white/10 transition-colors duration-200 flex items-center gap-3"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Admin
+                      </motion.button>
+                    )}
+                    <div className="border-t border-white/20 my-1"></div>
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => {
+                        onLogout();
+                        setIsDropdownOpen(false);
+                      }}
+                      className="w-full text-left px-4 py-3 text-red-300 hover:bg-red-500/20 transition-colors duration-200 flex items-center gap-3"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                      </svg>
+                      Logout
+                    </motion.button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </nav>
       )}
       <AnimatePresence mode="wait">
         {/* Not authenticated: show login */}
@@ -106,7 +319,6 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
                 setVehicleDetails(details);
                 navigateTo('camera');
               }}
-              onManualUpload={() => navigateTo('manual-upload')}
               onBack={() => navigateTo('landing')}
             />
           </motion.div>
@@ -122,58 +334,71 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
           >
             <CameraScreen 
               vehicleDetails={vehicleDetails}
-              onComplete={async () => {
-                await refetchUploadLimits();
-                navigateTo('buffering');
-              }}
+              onComplete={() => navigateTo('landing')}
               onBack={() => navigateTo('landing')}
             />
           </motion.div>
         )}
 
-        {currentScreen === 'manual-upload' && (
+        {currentScreen === 'dashboard' && (
           <motion.div
-            key="manual-upload"
+            key="dashboard"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <ManualUploadScreen 
-              onComplete={async () => {
-                await refetchUploadLimits();
-                navigateTo('buffering');
-              }}
-              onBack={() => navigateTo('rules')}
-            />
+            <Dashboard onBack={() => navigateTo('landing')} />
           </motion.div>
         )}
 
-        {currentScreen === 'buffering' && (
+        {currentScreen === 'admin' && (
           <motion.div
-            key="buffering"
+            key="admin"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <BufferingScreen onComplete={() => navigateTo('report')} />
+            <AdminPanel onBack={() => navigateTo('landing')} />
           </motion.div>
         )}
 
-        {currentScreen === 'report' && (
+        {currentScreen === 'clientDashboard' && (
           <motion.div
-            key="report"
+            key="clientDashboard"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <DamageReport onBack={() => navigateTo('landing')} />
+            <ClientDashboard onBack={() => navigateTo('landing')} clientName="SNAPCABS" />
           </motion.div>
         )}
 
-        {/* Test screen removed in production build */}
+        {currentScreen === 'refuxDashboard' && (
+          <motion.div
+            key="refuxDashboard"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <ClientDashboard onBack={() => navigateTo('landing')} clientName="REFUX" />
+          </motion.div>
+        )}
+
+        {currentScreen === 'manualInspection' && (
+          <motion.div
+            key="manualInspection"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <ManualInspectionDashboard onBack={() => navigateTo('landing')} />
+          </motion.div>
+        )}
 
         {needsAuth && (
           <motion.div

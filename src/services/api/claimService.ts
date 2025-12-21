@@ -37,19 +37,9 @@ export async function fetchClaim(claimId: number): Promise<Claim> {
 
 export async function fetchClaimResults(claimId: number): Promise<ClaimResults> {
   try {
-    // Structured logging for diagnostics
-    // Using groupCollapsed to keep console tidy while still detailed when expanded
-    console.groupCollapsed(`[API] GET /api/claims/${claimId}/results`);
-    console.log('Request params:', { claimId });
     const { data } = await apiClient.get<ClaimResults>(`/api/claims/${claimId}/results`);
-    console.log('Response data:', data);
-    console.groupEnd();
     return data;
   } catch (error) {
-    console.groupCollapsed(`[API ERROR] GET /api/claims/${claimId}/results`);
-    console.error('Request params:', { claimId });
-    console.error('Error:', error);
-    console.groupEnd();
     throw error;
   }
 }

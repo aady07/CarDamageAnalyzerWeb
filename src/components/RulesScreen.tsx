@@ -1,16 +1,15 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowRight, Shield, Camera, Car, Clock, AlertTriangle, CheckCircle, User, Upload } from 'lucide-react';
+import { ArrowRight, Shield, Camera, Car, Clock, AlertTriangle, CheckCircle, User } from 'lucide-react';
 import UploadLimitsDisplay from './UploadLimitsDisplay';
 import { useUploadLimitsContext } from '../contexts/UploadLimitsContext';
 
 interface RulesScreenProps {
   onStart: (vehicleDetails: { make: string; model: string; regNumber: string }) => void;
-  onManualUpload: () => void;
   onBack: () => void;
 }
 
-const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onManualUpload, onBack }) => {
+const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
   const [showVehicleForm, setShowVehicleForm] = useState(false);
   const [vehicleMake, setVehicleMake] = useState('');
   const [vehicleModel, setVehicleModel] = useState('');
@@ -44,7 +43,7 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onManualUpload, onBa
     {
       icon: CheckCircle,
       title: 'Follow Instructions',
-      description: 'Follow the on-screen stencil guides for accurate damage assessment',
+      description: 'Follow the AI-guided instructions for accurate damage assessment',
       color: 'text-purple-400'
     }
   ];
@@ -55,54 +54,54 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onManualUpload, onBa
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex items-center justify-between p-6 pt-12"
+        className="flex items-center justify-between p-4 md:p-6 pt-8 md:pt-12"
       >
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={onBack}
-          className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-colors"
+          className="w-8 h-8 md:w-10 md:h-10 bg-white/10 rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-colors"
         >
-          <ArrowRight className="w-5 h-5 rotate-180" />
+          <ArrowRight className="w-4 h-4 md:w-5 md:h-5 rotate-180" />
         </motion.button>
-        <h1 className="text-xl font-bold text-white">Analysis Rules</h1>
-        <div className="w-10 h-10" />
+        <h1 className="text-lg md:text-xl font-bold text-white">Analysis Rules</h1>
+        <div className="w-8 h-8 md:w-10 md:h-10" />
       </motion.div>
 
-      <div className="px-6 pb-20">
+      <div className="px-4 md:px-6 pb-16 md:pb-20">
         {/* Welcome Section */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="text-center mb-8"
+          className="text-center mb-6 md:mb-8"
         >
-          <div className="w-20 h-20 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-            <AlertTriangle className="w-10 h-10 text-blue-400" />
+          <div className="w-16 h-16 md:w-20 md:h-20 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
+            <AlertTriangle className="w-8 h-8 md:w-10 md:h-10 text-blue-400" />
           </div>
-          <h2 className="text-2xl font-bold text-white mb-2">Before We Begin</h2>
-          <p className="text-gray-400 text-lg">
+          <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Before We Begin</h2>
+          <p className="text-gray-400 text-sm md:text-lg">
             Follow these guidelines for the best damage analysis results
           </p>
         </motion.div>
 
         {/* Rules List */}
-        <div className="space-y-4 mb-8">
+        <div className="space-y-3 md:space-y-4 mb-6 md:mb-8">
           {rules.map((rule, index) => (
             <motion.div
               key={index}
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.2 + index * 0.1 }}
-              className="glass-effect rounded-2xl p-6"
+              className="glass-effect rounded-xl md:rounded-2xl p-4 md:p-6"
             >
               <div className="flex items-start">
-                <div className={`w-12 h-12 bg-white/10 rounded-full flex items-center justify-center mr-4 flex-shrink-0`}>
-                  <rule.icon className={`w-6 h-6 ${rule.color}`} />
+                <div className={`w-10 h-10 md:w-12 md:h-12 bg-white/10 rounded-full flex items-center justify-center mr-3 md:mr-4 flex-shrink-0`}>
+                  <rule.icon className={`w-5 h-5 md:w-6 md:h-6 ${rule.color}`} />
                 </div>
                 <div className="flex-1">
-                  <h3 className={`text-lg font-bold ${rule.color} mb-2`}>{rule.title}</h3>
-                  <p className="text-gray-300 text-sm leading-relaxed">{rule.description}</p>
+                  <h3 className={`text-sm md:text-lg font-bold ${rule.color} mb-1 md:mb-2`}>{rule.title}</h3>
+                  <p className="text-gray-300 text-xs md:text-sm leading-relaxed">{rule.description}</p>
                 </div>
               </div>
             </motion.div>
@@ -119,26 +118,6 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onManualUpload, onBa
           <UploadLimitsDisplay />
         </motion.div>
 
-        {/* Important Notice */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7 }}
-          className="bg-yellow-500/10 border border-yellow-500/20 rounded-2xl p-6 mb-8"
-        >
-          <div className="flex items-start">
-            <div className="w-10 h-10 bg-yellow-500/20 rounded-full flex items-center justify-center mr-4 flex-shrink-0">
-              <AlertTriangle className="w-5 h-5 text-yellow-400" />
-            </div>
-            <div>
-              <h3 className="text-yellow-400 font-bold mb-2">Important Notice</h3>
-              <p className="text-gray-300 text-sm leading-relaxed">
-                This analysis is for preliminary assessment only. For accurate repair estimates, 
-                always consult with a professional mechanic or body shop.
-              </p>
-            </div>
-          </div>
-        </motion.div>
 
         {/* Action Buttons */}
         <motion.div
@@ -148,46 +127,31 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onManualUpload, onBa
           className="space-y-3"
         >
           <motion.button
-            whileHover={{ scale: canPerformAssessment ? 1.02 : 1 }}
-            whileTap={{ scale: canPerformAssessment ? 0.98 : 1 }}
-            onClick={() => canPerformAssessment && setShowVehicleForm(true)}
-            disabled={!canPerformAssessment}
-            className={`w-full font-bold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 ${
-              canPerformAssessment 
-                ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white' 
-                : 'bg-gray-600/50 text-gray-400 cursor-not-allowed'
-            }`}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => setShowVehicleForm(true)}
+            className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 hover:from-blue-600 hover:to-purple-700"
           >
             <Camera className="w-5 h-5" />
-            {canPerformAssessment ? 'Start Analysis' : 'Insufficient Uploads'}
+            Start recording with AI analysis
           </motion.button>
           
-          <motion.button
-            whileHover={{ scale: canPerformAssessment ? 1.02 : 1 }}
-            whileTap={{ scale: canPerformAssessment ? 0.98 : 1 }}
-            onClick={() => {
-              if (canPerformAssessment) {
-                // Clear previous assessment data to prevent mixing old and new claim IDs
-                try {
-                  localStorage.removeItem('claimsByPosition');
-                  localStorage.removeItem('recentClaimIds');
-                  console.log('Cleared previous assessment data from localStorage');
-                } catch (error) {
-                  console.warn('Failed to clear localStorage:', error);
-                }
-                onManualUpload();
-              }
-            }}
-            disabled={!canPerformAssessment}
-            className={`w-full font-semibold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 ${
-              canPerformAssessment 
-                ? 'bg-white/20 border border-white/30 text-white' 
-                : 'bg-gray-600/50 border border-gray-600/50 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            <Upload className="w-5 h-5" />
-            {canPerformAssessment ? 'Manual Upload (if not using camera)' : 'Manual Upload Disabled'}
-          </motion.button>
+          {/* Warning if limits exceeded, but still allow proceeding */}
+          {!canPerformAssessment && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-3 bg-yellow-500/20 border border-yellow-500/50 rounded-xl p-3 flex items-start gap-2"
+            >
+              <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+              <div className="text-xs text-yellow-300">
+                <p className="font-semibold mb-1">⚠️ Upload Limit Exceeded</p>
+                <p className="text-yellow-200/80">
+                  You can still proceed, but uploads may be restricted. Testing mode available if backend is down.
+                </p>
+              </div>
+            </motion.div>
+          )}
           
           <motion.button
             whileHover={{ scale: 1.02 }}
@@ -275,9 +239,7 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onManualUpload, onBa
                       try {
                         localStorage.removeItem('claimsByPosition');
                         localStorage.removeItem('recentClaimIds');
-                        console.log('Cleared previous assessment data from localStorage');
                       } catch (error) {
-                        console.warn('Failed to clear localStorage:', error);
                       }
                       onStart({ make: vehicleMake, model: vehicleModel, regNumber: vehicleRegNumber });
                     }
@@ -289,7 +251,7 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onManualUpload, onBa
                       : 'bg-blue-500 hover:bg-blue-600 text-white'
                   }`}
                 >
-                  Start Camera Analysis
+                  Start AI Analysis
                 </motion.button>
               </div>
             </motion.div>

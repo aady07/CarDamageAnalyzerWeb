@@ -36,7 +36,6 @@ const TestingUploader: React.FC<TestingUploaderProps> = ({ onBack, onComplete })
 
   const log = useCallback((line: string) => {
     setLogLines((prev) => [...prev, line]);
-    console.log(`[TEST-UPLOAD] ${line}`);
   }, []);
 
   const toBlob = async (url: string): Promise<Blob> => {
@@ -225,8 +224,8 @@ const TestingUploader: React.FC<TestingUploaderProps> = ({ onBack, onComplete })
           <div className="glass-effect rounded-2xl p-6 mt-6">
             <h3 className="text-white font-bold mb-4">Results Preview</h3>
             <div className="mb-4 flex items-center justify-between">
-              <span className="text-gray-300">Mean per-claim total ({previewParts.length ? 4 : 0} claims)</span>
-              <span className="text-blue-400 font-bold">₹{previewMeanPerClaim.toLocaleString()}</span>
+              <span className="text-gray-300">Mean confidence score ({previewParts.length ? 4 : 0} claims)</span>
+              <span className="text-blue-400 font-bold">{previewMeanPerClaim}%</span>
             </div>
             <div className="space-y-3">
               {previewParts.map((p, idx) => (
@@ -237,7 +236,7 @@ const TestingUploader: React.FC<TestingUploaderProps> = ({ onBack, onComplete })
                     </div>
                     <span className="text-white font-semibold">{p.part}</span>
                   </div>
-                  <span className="text-gray-300 font-bold">₹{p.mean.toLocaleString()}</span>
+                  <span className="text-gray-300 font-bold">{p.confidence || 'N/A'}%</span>
                 </div>
               ))}
             </div>
