@@ -9,10 +9,10 @@ export type CaptureSegmentId =
   | 'left_front_door'
   | 'left_rear_door'
   | 'left_rear_fender'
-  | 'front_floor_1'
-  | 'front_floor_2'
-  | 'rear_floor_1'
-  | 'rear_floor_2';
+  | 'front_floor'
+  | 'tissue'
+  | 'rear_floor'
+  | 'bottle';
 
 export interface CaptureSegment {
   id: CaptureSegmentId;

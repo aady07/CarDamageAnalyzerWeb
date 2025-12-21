@@ -94,18 +94,45 @@ const TOTAL_CAPTURE_DURATION = CAPTURE_SEGMENTS[CAPTURE_SEGMENTS.length - 1].tim
 
 // Stencil images mapping - Flow: Front → Right side → Rear → Left side
 // Using relative paths (./) for WebView compatibility (works in both web and Android WebView)
-const STENCIL_IMAGES = [
-  { id: 'front', path: './Front.png', label: 'Front View' },
-  { id: 'right_front_fender', path: './Right_front_fender.png', label: 'Right Front Fender' },
-  { id: 'right_front_door', path: './Right_front_door.png', label: 'Right Front Door' },
-  { id: 'right_rear_door', path: './Right_rear_door.png', label: 'Right Rear Door' },
-  { id: 'right_rear_fender', path: './Right_rear_fender.png', label: 'Right Rear Fender' },
-  { id: 'rear', path: './Rear.png', label: 'Rear View' },
-  { id: 'left_rear_fender', path: './Left_rear_fender.png', label: 'Left Rear Fender' },
-  { id: 'left_rear_door', path: './Left_rear_door.png', label: 'Left Rear Door' },
-  { id: 'left_front_door', path: './Left_front_door.png', label: 'Left Front Door' },
-  { id: 'left_front_fender', path: './Left_front_fender.png', label: 'Left Front Fender' }
+// Base stencil paths - will be modified based on make selection
+const BASE_STENCIL_IMAGES = [
+  { id: 'front', fileName: 'Front.png', label: 'Front View' },
+  { id: 'right_front_fender', fileName: 'Right_front_fender.png', label: 'Right Front Fender' },
+  { id: 'right_front_door', fileName: 'Right_front_door.png', label: 'Right Front Door' },
+  { id: 'right_rear_door', fileName: 'Right_rear_door.png', label: 'Right Rear Door' },
+  { id: 'right_rear_fender', fileName: 'Right_rear_fender.png', label: 'Right Rear Fender' },
+  { id: 'rear', fileName: 'Rear.png', label: 'Rear View' },
+  { id: 'left_rear_fender', fileName: 'Left_rear_fender.png', label: 'Left Rear Fender' },
+  { id: 'left_rear_door', fileName: 'Left_rear_door.png', label: 'Left Rear Door' },
+  { id: 'left_front_door', fileName: 'Left_front_door.png', label: 'Left Front Door' },
+  { id: 'left_front_fender', fileName: 'Left_front_fender.png', label: 'Left Front Fender' }
 ];
+
+// Helper function to get stencil images based on make
+const getStencilImages = (make: string | null): Array<{ id: string; path: string; label: string }> => {
+  const makeLower = make?.toLowerCase() || '';
+  let folder = '';
+  
+  // Determine folder based on make
+  if (makeLower === 'tata') {
+    folder = './tata/';
+  } else if (makeLower === 'mg') {
+    folder = './mg/';
+  } else if (makeLower === 'byd') {
+    folder = './byd/';
+  } else if (makeLower === 'maruti') {
+    folder = './maruti/';
+  } else {
+    // Default to root folder
+    folder = './';
+  }
+  
+  return BASE_STENCIL_IMAGES.map(stencil => ({
+    id: stencil.id,
+    path: `${folder}${stencil.fileName}`,
+    label: stencil.label
+  }));
+};
 
 const getInitialSegmentStatuses = (): Record<CaptureSegmentId, SegmentStatus> => {
   const statuses = {} as Record<CaptureSegmentId, SegmentStatus>;
@@ -113,38 +140,43 @@ const getInitialSegmentStatuses = (): Record<CaptureSegmentId, SegmentStatus> =>
     statuses[segment.id] = index === 0 ? 'capturing' : 'pending';
   });
   // Initialize manual capture segments as pending
-  statuses['front_floor_1'] = 'pending';
-  statuses['front_floor_2'] = 'pending';
-  statuses['rear_floor_1'] = 'pending';
-  statuses['rear_floor_2'] = 'pending';
+  statuses['front_floor'] = 'pending';
+  statuses['tissue'] = 'pending';
+  statuses['rear_floor'] = 'pending';
+  statuses['bottle'] = 'pending';
   return statuses;
 };
 
 const TESTING_MODE_KEY = 'camera_testing_bypass_enabled';
 
-// Manual Capture Button Component - Shows after 5 seconds delay
+// Manual Capture Button Component - Shows after delay
 const ManualCaptureButton: React.FC<{
-  manualCapturePhase: 'none' | 'front_floor' | 'rear_floor';
-  manualCaptureIndex: number;
+  manualCapturePhase: 'none' | 'front_floor' | 'tissue' | 'rear_floor' | 'bottle';
   segmentStatuses: Record<CaptureSegmentId, SegmentStatus>;
   onCapture: () => void;
-}> = ({ manualCapturePhase, manualCaptureIndex, segmentStatuses, onCapture }) => {
+  showTissueStencil?: boolean;
+  showBottleStencil?: boolean;
+}> = ({ manualCapturePhase, segmentStatuses, onCapture, showTissueStencil, showBottleStencil }) => {
   const [showButton, setShowButton] = useState(false);
 
   useEffect(() => {
-    // Show button after 5 seconds
-    const timer = setTimeout(() => {
-      setShowButton(true);
-    }, 5000);
+    // Reset button visibility when phase changes
+    setShowButton(false);
+    
+    // Show button after delay:
+    // - For tissue/bottle/front_floor/rear_floor: after stencil is shown for 2 seconds
+    if (manualCapturePhase === 'tissue' || manualCapturePhase === 'bottle' || manualCapturePhase === 'front_floor' || manualCapturePhase === 'rear_floor') {
+      // Wait for stencil to show (100ms) + stencil display (2000ms) = 2100ms total
+      const timer = setTimeout(() => {
+        setShowButton(true);
+      }, 2100);
+      return () => clearTimeout(timer);
+    }
+  }, [manualCapturePhase, showTissueStencil, showBottleStencil]);
 
-    return () => clearTimeout(timer);
-  }, [manualCapturePhase, manualCaptureIndex]);
+  if (!showButton || manualCapturePhase === 'none') return null;
 
-  if (!showButton) return null;
-
-  const currentSegmentId = manualCapturePhase === 'front_floor' 
-    ? (manualCaptureIndex === 0 ? 'front_floor_1' : 'front_floor_2')
-    : (manualCaptureIndex === 0 ? 'rear_floor_1' : 'rear_floor_2');
+  const currentSegmentId = manualCapturePhase;
 
   return (
     <motion.div
@@ -162,7 +194,7 @@ const ManualCaptureButton: React.FC<{
       >
         {segmentStatuses[currentSegmentId] === 'verifying' 
           ? 'Capturing...' 
-          : `Capture Photo ${manualCaptureIndex + 1}/2`}
+          : 'Capture'}
       </motion.button>
     </motion.div>
   );
@@ -201,8 +233,13 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
   const [edgeDensity, setEdgeDensity] = useState(0);
   const [alignmentScore, setAlignmentScore] = useState(0);
   // Manual capture phase state (after 10 stencils)
-  const [manualCapturePhase, setManualCapturePhase] = useState<'none' | 'front_floor' | 'rear_floor'>('none');
-  const [manualCaptureIndex, setManualCaptureIndex] = useState(0); // 0 or 1 for front_floor_1/2 or rear_floor_1/2
+  const [manualCapturePhase, setManualCapturePhase] = useState<'none' | 'front_floor' | 'tissue' | 'rear_floor' | 'bottle'>('none');
+  const [showTissueStencil, setShowTissueStencil] = useState(false);
+  const [showBottleStencil, setShowBottleStencil] = useState(false);
+  const [showFrontFloorStencil, setShowFrontFloorStencil] = useState(false);
+  const [showRearFloorStencil, setShowRearFloorStencil] = useState(false);
+  const [showOpenFrontDoor, setShowOpenFrontDoor] = useState(false);
+  const [showOpenRearDoor, setShowOpenRearDoor] = useState(false);
   const isAnalyzingRef = useRef<boolean>(false); // Use ref instead of state to avoid recreating function
   const completeScanRef = useRef<(() => Promise<void>) | null>(null); // Store completeScan function to avoid dependency issues
   const stencilImageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map()); // Cache loaded stencil images
@@ -216,17 +253,39 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
   const activeSegment = CAPTURE_SEGMENTS[currentSegmentIndex] ?? CAPTURE_SEGMENTS[0];
   const activeSegmentStatus = segmentStatuses[activeSegment.id];
 
-  // Use the constant stencil images array
-  const stencilImages = STENCIL_IMAGES;
+  // Get stencil images based on vehicle make
+  const stencilImages = React.useMemo(() => {
+    return getStencilImages(vehicleDetails?.make || null);
+  }, [vehicleDetails?.make]);
+
+  // Reset stencil index if stencilImages array changes (shouldn't happen during scan, but safety check)
+  useEffect(() => {
+    // Only reset if we're not actively scanning and the array structure changed
+    if (status === 'idle' && stencilImages.length > 0 && currentStencilIndex >= stencilImages.length) {
+      setCurrentStencilIndex(0);
+      setStencilVerified(false);
+    }
+  }, [stencilImages.length, status]);
 
   // Get instruction based on current stencil and verification status
   // Returns: { text: string, arrowDirection: 'left' | 'right' | 'up' | 'down' | 'none' }
   const getCurrentInstruction = useCallback((): { text: string; arrowDirection: 'left' | 'right' | 'up' | 'down' | 'none' } => {
+    // Safety check: ensure stencilImages array is valid and has items
+    if (!stencilImages || stencilImages.length === 0) {
+      return { text: 'Loading stencils...', arrowDirection: 'none' };
+    }
+    
     if (currentStencilIndex >= stencilImages.length) {
       return { text: 'Scan complete!', arrowDirection: 'none' };
     }
 
     const currentStencil = stencilImages[currentStencilIndex];
+    
+    // Safety check: ensure currentStencil exists
+    if (!currentStencil) {
+      console.warn(`[Instruction] Current stencil at index ${currentStencilIndex} is undefined. Total stencils: ${stencilImages.length}`);
+      return { text: 'Loading...', arrowDirection: 'none' };
+    }
     
     // If stencil is verified, show next movement instruction (from user's perspective)
     if (stencilVerified) {
@@ -236,6 +295,10 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       }
       
       const nextStencil = stencilImages[nextIndex];
+      if (!nextStencil) {
+        return { text: 'Moving to next part...', arrowDirection: 'none' };
+      }
+      
       // Instructions from user's perspective with movement direction and part name
       // User's left = car's right, user's right = car's left
       // Only mention left/right in movement, not in part name
@@ -259,21 +322,26 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       return { text: `Move to ${nextStencil.label}`, arrowDirection: 'none' };
     }
     
-    // If not verified, show alignment instruction
+    // If not verified, show alignment instruction for CURRENT stencil
     const alignmentInstructions: Record<string, string> = {
-      'front': 'Position the front of the car in the frame',
-      'right_front_fender': 'Align the front fender in the frame',
-      'right_front_door': 'Align the front door in the frame',
-      'right_rear_door': 'Align the rear door in the frame',
-      'right_rear_fender': 'Align the rear fender in the frame',
-      'rear': 'Position the back of the car in the frame',
-      'left_rear_fender': 'Align the rear fender in the frame',
-      'left_rear_door': 'Align the rear door in the frame',
-      'left_front_door': 'Align the front door in the frame',
-      'left_front_fender': 'Align the front fender in the frame'
+      'front': 'Align the front of the car in the stencil',
+      'right_front_fender': 'Align the right front fender in the stencil',
+      'right_front_door': 'Align the right front door in the stencil',
+      'right_rear_door': 'Align the right rear door in the stencil',
+      'right_rear_fender': 'Align the right rear fender in the stencil',
+      'rear': 'Align the rear of the car in the stencil',
+      'left_rear_fender': 'Align the left rear fender in the stencil',
+      'left_rear_door': 'Align the left rear door in the stencil',
+      'left_front_door': 'Align the left front door in the stencil',
+      'left_front_fender': 'Align the left front fender in the stencil'
     };
     
-    return { text: alignmentInstructions[currentStencil.id] || `Align ${currentStencil.label}`, arrowDirection: 'none' };
+    // Ensure we use the current stencil's ID, not a stale one
+    const alignmentText = alignmentInstructions[currentStencil.id];
+    if (alignmentText) {
+      return { text: alignmentText, arrowDirection: 'none' };
+    }
+    return { text: `Align ${currentStencil.label}`, arrowDirection: 'none' };
   }, [currentStencilIndex, stencilVerified, stencilImages]);
 
   // Edge Detection & Density Analysis Function - Only analyzes INSIDE stencil region
@@ -590,7 +658,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
   }, [captureImage]);
 
   // Manual capture function (for floor images without stencil)
-  const captureManualImage = useCallback(async (segmentId: 'front_floor_1' | 'front_floor_2' | 'rear_floor_1' | 'rear_floor_2'): Promise<boolean> => {
+  const captureManualImage = useCallback(async (segmentId: 'front_floor' | 'tissue' | 'rear_floor' | 'bottle'): Promise<boolean> => {
     try {
       if (!webcamRef.current) {
         console.error(`[Manual Capture] Webcam not available for ${segmentId}`);
@@ -634,45 +702,72 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
 
   // Handle manual capture button click
   const handleManualCapture = useCallback(async () => {
-    let segmentId: 'front_floor_1' | 'front_floor_2' | 'rear_floor_1' | 'rear_floor_2';
+    if (manualCapturePhase === 'none') return;
     
-    if (manualCapturePhase === 'front_floor') {
-      segmentId = manualCaptureIndex === 0 ? 'front_floor_1' : 'front_floor_2';
-    } else {
-      segmentId = manualCaptureIndex === 0 ? 'rear_floor_1' : 'rear_floor_2';
-    }
-
-    const success = await captureManualImage(segmentId);
+    const success = await captureManualImage(manualCapturePhase);
     
     if (success) {
-      // Move to next manual capture
-      if (manualCaptureIndex === 0) {
-        // Move to second image in current phase
-        setManualCaptureIndex(1);
-        } else {
-          // Completed current phase, move to next
-          if (manualCapturePhase === 'front_floor') {
-            // Move to rear floor phase - show instruction for 5 seconds first, button will appear after
-            setManualCapturePhase('rear_floor');
-            setManualCaptureIndex(0);
-            setCurrentInstruction({ 
-              text: 'Open rear door & Point the camera toward the rear floor area. Capture clear photo of water bottles placed inside car', 
-              arrowDirection: 'none' 
-            });
-          } else {
-          // All manual captures done, complete scan
-          console.log('[Manual Capture] All 14 images captured, completing scan...');
+      // Move to next manual capture phase
+      if (manualCapturePhase === 'front_floor') {
+        // Move to tissue - show instruction immediately
+        setManualCapturePhase('tissue');
+        setShowTissueStencil(false); // Reset
+        setCurrentInstruction({ 
+          text: 'Capture Tissue paper', 
+          arrowDirection: 'none' 
+        });
+        // Show tissue stencil immediately, then hide after 2 seconds
+        setShowTissueStencil(true);
+        setTimeout(() => {
+          setShowTissueStencil(false);
+        }, 2000);
+      } else if (manualCapturePhase === 'tissue') {
+        // Move to rear floor
+        setManualCapturePhase('rear_floor');
+        setShowOpenRearDoor(true);
+        setCurrentInstruction({ 
+          text: 'Open rear door', 
+          arrowDirection: 'none' 
+        });
+        // Hide message after 3 seconds, then show rear floor stencil for 4 seconds
+        setTimeout(() => {
+          setShowOpenRearDoor(false);
+          setCurrentInstruction({ 
+            text: 'Capture rear floor', 
+            arrowDirection: 'none' 
+          });
+          // Show rear floor stencil for 2 seconds
+          setShowRearFloorStencil(true);
           setTimeout(() => {
-            if (completeScanRef.current) {
-              completeScanRef.current();
-            } else {
-              setStatus('processing');
-            }
-          }, 500);
-        }
+            setShowRearFloorStencil(false);
+          }, 2000);
+        }, 3000);
+      } else if (manualCapturePhase === 'rear_floor') {
+        // Move to bottle - show instruction immediately
+        setManualCapturePhase('bottle');
+        setShowBottleStencil(false); // Reset
+        setCurrentInstruction({ 
+          text: 'Capture Bottle', 
+          arrowDirection: 'none' 
+        });
+        // Show bottle stencil immediately, then hide after 2 seconds
+        setShowBottleStencil(true);
+        setTimeout(() => {
+          setShowBottleStencil(false);
+        }, 2000);
+      } else if (manualCapturePhase === 'bottle') {
+        // All manual captures done, complete scan
+        console.log('[Manual Capture] All 14 images captured, completing scan...');
+        setTimeout(() => {
+          if (completeScanRef.current) {
+            completeScanRef.current();
+          } else {
+            setStatus('processing');
+          }
+        }, 500);
       }
     }
-  }, [manualCapturePhase, manualCaptureIndex, captureManualImage]);
+  }, [manualCapturePhase, captureManualImage]);
 
   // Continuous edge analysis when recording
   useEffect(() => {
@@ -821,17 +916,17 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
               console.log(`[Stencil Progression] Moving from stencil ${currentStencilIndex} (${stencilImages[currentStencilIndex].label}) to stencil ${nextIndex} (${stencilImages[nextIndex].label}) in 5 seconds...`);
               // Update instruction immediately to guide user
               setTimeout(() => {
-                console.log(`[Stencil Progression] ✓ Now showing stencil ${nextIndex}: ${stencilImages[nextIndex].label}`);
-                setCurrentStencilIndex(nextIndex);
-                setStencilVerified(false);
+                console.log(`[Stencil Progression] ✓ Now showing stencil ${nextIndex}: ${stencilImages[nextIndex]?.label || 'unknown'}`);
+                // Update state in the correct order to avoid stale closures
+                setStencilVerified(false); // Set verified to false first
+                setCurrentStencilIndex(nextIndex); // Then update index
                 // Don't reset showArrowAfterVerify here - let the timeout handle it
                 // This ensures arrow shows for full 5 seconds regardless of stencil transition
                 setEdgeDensity(0);
                 setAlignmentScore(0);
                 successCountRef.current = 0; // Reset for next stencil
                 previousStencilIndexRef.current = nextIndex; // Update previous to next index
-                // Update instruction for new stencil
-                setCurrentInstruction(getCurrentInstruction());
+                // Instruction will be updated automatically by the useEffect that watches currentStencilIndex
               }, 5000); // Wait 5 seconds before showing next stencil
             } else {
               console.log(`[Stencil Progression] All ${stencilImages.length} stencils completed!`);
@@ -840,13 +935,26 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
                 const uploadedCount = Object.keys(storedImagesRef.current).length;
                 console.log(`[Stencil Progression] All 10 stencils done. Uploaded images: ${uploadedCount}`);
                 console.log(`[Manual Capture] Transitioning to manual capture phase (front floor)...`);
-                // Transition to manual capture for front floor images
+                // Transition to manual capture for front floor
                 setManualCapturePhase('front_floor');
-                setManualCaptureIndex(0);
+                setShowOpenFrontDoor(true);
                 setCurrentInstruction({ 
-                  text: 'Open front door & Point the camera toward the front floor area (driver/passenger side). Capture clear photo of tissue paper placed at dashboard', 
+                  text: 'Open front door', 
                   arrowDirection: 'none' 
                 });
+                // Hide message after 3 seconds, then show front floor stencil for 4 seconds
+                setTimeout(() => {
+                  setShowOpenFrontDoor(false);
+                  setCurrentInstruction({ 
+                    text: 'Capture front floor', 
+                    arrowDirection: 'none' 
+                  });
+                  // Show front floor stencil for 2 seconds
+                  setShowFrontFloorStencil(true);
+                  setTimeout(() => {
+                    setShowFrontFloorStencil(false);
+                  }, 2000);
+                }, 3000);
               }, 2000);
             }
             
@@ -887,9 +995,12 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
   // Update instruction when stencil changes or verification status changes
   useEffect(() => {
     if (status === 'recording') {
-      setCurrentInstruction(getCurrentInstruction());
+      const instruction = getCurrentInstruction();
+      const currentStencil = stencilImages[currentStencilIndex];
+      console.log(`[Instruction] Updating instruction - Index: ${currentStencilIndex}, Stencil ID: ${currentStencil?.id || 'undefined'}, Verified: ${stencilVerified}, Text: "${instruction.text}"`);
+      setCurrentInstruction(instruction);
     }
-  }, [status, currentStencilIndex, stencilVerified, getCurrentInstruction]);
+  }, [status, currentStencilIndex, stencilVerified, getCurrentInstruction, stencilImages]);
   
   const webcamRef = useRef<Webcam>(null);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -1108,10 +1219,10 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       // Include all 14 images: 10 stencil images + 4 manual capture images
       const allSegmentIds: CaptureSegmentId[] = [
         ...CAPTURE_SEGMENTS.map(s => s.id),
-        'front_floor_1',
-        'front_floor_2',
-        'rear_floor_1',
-        'rear_floor_2'
+        'front_floor',
+        'tissue',
+        'rear_floor',
+        'bottle'
       ];
       const imageReferences = allSegmentIds.map((segmentId) => {
         const storedReference = storedImagesRef.current[segmentId];
@@ -1621,54 +1732,31 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
                 
                 {/* Stencil Image with Premium Styling */}
                 <div className="relative z-10 w-full h-full flex items-center justify-center">
-                  <img
-                    key={currentStencilIndex}
-                    src={stencilImages[currentStencilIndex].path}
-                    alt={stencilImages[currentStencilIndex].label}
-                    className="w-full h-full object-contain relative z-10"
-                    style={{
-                      // Darken the stencil to make it more visible
-                      // Use fewer drop-shadows with lighter colors for better performance
-                      filter: stencilVerified
-                        ? 'brightness(0.15) contrast(3) drop-shadow(2px 0 0 rgba(34, 197, 94, 0.6)) drop-shadow(-2px 0 0 rgba(34, 197, 94, 0.6)) drop-shadow(0 2px 0 rgba(34, 197, 94, 0.6)) drop-shadow(0 -2px 0 rgba(34, 197, 94, 0.6))'
-                        : 'brightness(0.15) contrast(3) drop-shadow(2px 0 0 rgba(239, 68, 68, 0.6)) drop-shadow(-2px 0 0 rgba(239, 68, 68, 0.6)) drop-shadow(0 2px 0 rgba(239, 68, 68, 0.6)) drop-shadow(0 -2px 0 rgba(239, 68, 68, 0.6))',
-                      transition: 'all 0.7s cubic-bezier(0.4, 0, 0.2, 1)',
-                      imageRendering: 'crisp-edges',
-                      WebkitFilter: stencilVerified
-                        ? 'brightness(0.15) contrast(3) drop-shadow(2px 0 0 rgba(34, 197, 94, 0.6)) drop-shadow(-2px 0 0 rgba(34, 197, 94, 0.6)) drop-shadow(0 2px 0 rgba(34, 197, 94, 0.6)) drop-shadow(0 -2px 0 rgba(34, 197, 94, 0.6))'
-                        : 'brightness(0.15) contrast(3) drop-shadow(2px 0 0 rgba(239, 68, 68, 0.6)) drop-shadow(-2px 0 0 rgba(239, 68, 68, 0.6)) drop-shadow(0 2px 0 rgba(239, 68, 68, 0.6)) drop-shadow(0 -2px 0 rgba(239, 68, 68, 0.6))'
-                    }}
-                  />
-                  
-                  {/* Animated Outline Ring - Keep for visual feedback but make it subtle */}
-                  <motion.div
-                    animate={stencilVerified ? {
-                      scale: [1, 1.02, 1],
-                      opacity: [0.2, 0.3, 0.2]
-                    } : {
-                      scale: [1, 1.01, 1],
-                      opacity: [0.15, 0.25, 0.15]
-                    }}
-                    transition={{
-                      duration: 2,
-                      repeat: Infinity,
-                      ease: "easeInOut"
-                    }}
-                    className={`absolute inset-0 rounded-3xl border-2 ${
-                      stencilVerified
-                        ? 'border-green-400/30'
-                        : 'border-red-400/30'
-                    }`}
-                    style={{
-                      boxShadow: stencilVerified
-                        ? '0 0 15px rgba(34, 197, 94, 0.2)'
-                        : '0 0 15px rgba(239, 68, 68, 0.2)'
-                    }}
-                  />
+                  {/* Regular stencils (first 10) */}
+                  {status === 'recording' && currentStencilIndex < stencilImages.length && manualCapturePhase === 'none' && (
+                    <img
+                      key={currentStencilIndex}
+                      src={stencilImages[currentStencilIndex].path}
+                      alt={stencilImages[currentStencilIndex].label}
+                      className="w-full h-full object-contain relative z-10"
+                      style={{
+                        // Darken the stencil to make it more visible
+                        // Use fewer drop-shadows with lighter colors for better performance
+                        filter: stencilVerified
+                          ? 'brightness(0.15) contrast(3) drop-shadow(2px 0 0 rgba(34, 197, 94, 0.6)) drop-shadow(-2px 0 0 rgba(34, 197, 94, 0.6)) drop-shadow(0 2px 0 rgba(34, 197, 94, 0.6)) drop-shadow(0 -2px 0 rgba(34, 197, 94, 0.6))'
+                          : 'brightness(0.15) contrast(3) drop-shadow(2px 0 0 rgba(239, 68, 68, 0.6)) drop-shadow(-2px 0 0 rgba(239, 68, 68, 0.6)) drop-shadow(0 2px 0 rgba(239, 68, 68, 0.6)) drop-shadow(0 -2px 0 rgba(239, 68, 68, 0.6))',
+                        transition: 'all 0.7s cubic-bezier(0.4, 0, 0.2, 1)',
+                        imageRendering: 'crisp-edges',
+                        WebkitFilter: stencilVerified
+                          ? 'brightness(0.15) contrast(3) drop-shadow(2px 0 0 rgba(34, 197, 94, 0.6)) drop-shadow(-2px 0 0 rgba(34, 197, 94, 0.6)) drop-shadow(0 2px 0 rgba(34, 197, 94, 0.6)) drop-shadow(0 -2px 0 rgba(34, 197, 94, 0.6))'
+                          : 'brightness(0.15) contrast(3) drop-shadow(2px 0 0 rgba(239, 68, 68, 0.6)) drop-shadow(-2px 0 0 rgba(239, 68, 68, 0.6)) drop-shadow(0 2px 0 rgba(239, 68, 68, 0.6)) drop-shadow(0 -2px 0 rgba(239, 68, 68, 0.6))'
+                      }}
+                    />
+                  )}
                 </div>
                 
                 {/* Premium Verification Badge */}
-                {stencilVerified && (
+                {status === 'recording' && currentStencilIndex < stencilImages.length && manualCapturePhase === 'none' && stencilVerified && (
                   <motion.div
                     initial={{ scale: 0, opacity: 0, rotate: -180 }}
                     animate={{ scale: 1, opacity: 1, rotate: 0 }}
@@ -1708,7 +1796,85 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
                   </motion.div>
                 )}
               </div>
-              
+            </motion.div>
+          </div>
+        )}
+        
+        {/* Manual Capture Stencils - Display during manual capture phase (Tissue, Bottle, Front Floor, Rear Floor) */}
+        {status === 'recording' && (showTissueStencil || showBottleStencil || showFrontFloorStencil || showRearFloorStencil) && (
+          <div className="absolute inset-0 pointer-events-none flex items-center justify-center px-4 md:px-6">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              className="relative w-full max-w-md h-[70vh] md:h-[75vh] flex items-center justify-center"
+            >
+              <div className="relative z-10 w-full h-full flex items-center justify-center">
+                {/* Front Floor stencil (display only, no red/green) */}
+                {showFrontFloorStencil && (
+                  <img
+                    src="./front_floor.png"
+                    alt="Front Floor"
+                    className="w-full h-full object-contain relative z-10 opacity-70"
+                    style={{
+                      filter: 'brightness(0.3) contrast(2.5)',
+                      transition: 'all 0.3s',
+                      imageRendering: 'crisp-edges'
+                    }}
+                    onError={(e) => {
+                      console.error('[CameraScreen] Failed to load front_floor.png stencil');
+                    }}
+                  />
+                )}
+                {/* Tissue stencil (display only, no red/green) */}
+                {showTissueStencil && (
+                  <img
+                    src="./tissue.png"
+                    alt="Tissue"
+                    className="w-full h-full object-contain relative z-10 opacity-70"
+                    style={{
+                      filter: 'brightness(0.3) contrast(2.5)',
+                      transition: 'all 0.3s',
+                      imageRendering: 'crisp-edges'
+                    }}
+                    onError={(e) => {
+                      console.error('[CameraScreen] Failed to load tissue.png stencil');
+                    }}
+                  />
+                )}
+                {/* Rear Floor stencil (display only, no red/green) */}
+                {showRearFloorStencil && (
+                  <img
+                    src="./rear_floor.png"
+                    alt="Rear Floor"
+                    className="w-full h-full object-contain relative z-10 opacity-70"
+                    style={{
+                      filter: 'brightness(0.3) contrast(2.5)',
+                      transition: 'all 0.3s',
+                      imageRendering: 'crisp-edges'
+                    }}
+                    onError={(e) => {
+                      console.error('[CameraScreen] Failed to load rear_floor.png stencil');
+                    }}
+                  />
+                )}
+                {/* Bottle stencil (display only, no red/green) */}
+                {showBottleStencil && (
+                  <img
+                    src="./bottle.png"
+                    alt="Bottle"
+                    className="w-full h-full object-contain relative z-10 opacity-70"
+                    style={{
+                      filter: 'brightness(0.3) contrast(2.5)',
+                      transition: 'all 0.3s',
+                      imageRendering: 'crisp-edges'
+                    }}
+                    onError={(e) => {
+                      console.error('[CameraScreen] Failed to load bottle.png stencil');
+                    }}
+                  />
+                )}
+              </div>
             </motion.div>
           </div>
         )}
@@ -1977,7 +2143,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       {status === 'recording' && currentInstruction.text && (
         <div className={`absolute left-1/2 transform -translate-x-1/2 z-50 text-center px-4 w-full max-w-md ${manualCapturePhase !== 'none' ? 'top-20 md:top-24' : 'top-32 md:top-36'}`}>
           <motion.div
-            key={`instruction-${manualCapturePhase}-${manualCaptureIndex}-${currentStencilIndex}`}
+            key={`instruction-${manualCapturePhase}-${currentStencilIndex}`}
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
@@ -2006,17 +2172,18 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
                 textShadow: '0 2px 10px rgba(0, 0, 0, 0.8)'
               }}
             >
-              {currentInstruction.text.replace(/←|→|↓/g, '').trim()}
+              {showOpenFrontDoor ? 'Open front door' : showOpenRearDoor ? 'Open rear door' : currentInstruction.text.replace(/←|→|↓/g, '').trim()}
             </h3>
           </motion.div>
           
-          {/* Manual Capture Button - Show when in manual capture phase, after 5 seconds delay */}
+          {/* Manual Capture Button - Show when in manual capture phase */}
           {manualCapturePhase !== 'none' && (
             <ManualCaptureButton
               manualCapturePhase={manualCapturePhase}
-              manualCaptureIndex={manualCaptureIndex}
               segmentStatuses={segmentStatuses}
               onCapture={handleManualCapture}
+              showTissueStencil={showTissueStencil}
+              showBottleStencil={showBottleStencil}
             />
           )}
         </div>

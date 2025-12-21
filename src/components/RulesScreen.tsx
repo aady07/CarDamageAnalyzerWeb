@@ -166,13 +166,17 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <div className="md:col-span-1">
                   <label className="block text-gray-300 text-sm mb-2">Make *</label>
-                  <input
-                    type="text"
+                  <select
                     value={vehicleMake}
                     onChange={(e) => setVehicleMake(e.target.value)}
-                    placeholder="e.g., Toyota"
-                    className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-                  />
+                    className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                  >
+                    <option value="">Select Make</option>
+                    <option value="MG">MG</option>
+                    <option value="BYD">BYD</option>
+                    <option value="Maruti">Maruti</option>
+                    <option value="Tata">Tata</option>
+                  </select>
                 </div>
                 <div className="md:col-span-1">
                   <label className="block text-gray-300 text-sm mb-2">Model *</label>
