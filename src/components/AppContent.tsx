@@ -73,10 +73,6 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
       checkClientAccess('SNAPCABS')
         .then(response => {
           setHasClientAccess(response.hasAccess);
-          // If user has client access and is on landing screen, redirect to client dashboard
-          if (response.hasAccess && currentScreen === 'landing') {
-            setCurrentScreen('clientDashboard');
-          }
         })
         .catch(error => {
           setHasClientAccess(false);
