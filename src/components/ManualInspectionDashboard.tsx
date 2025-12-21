@@ -296,7 +296,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   const [currentBrushPath, setCurrentBrushPath] = useState<Array<{ x: number; y: number }>>([]);
   const [textInput, setTextInput] = useState<string>('');
   const [textInputPosition, setTextInputPosition] = useState<{ x: number; y: number; canvasX: number; canvasY: number } | null>(null);
-  const textInputRef = useRef<HTMLInputElement | null>(null);
+  const textInputRef = useRef<HTMLSelectElement | null>(null);
   const isTextInputActiveRef = useRef<boolean>(false);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [isDraggingDrawing, setIsDraggingDrawing] = useState(false);
@@ -1291,7 +1291,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
     // Calculate scale factors for converting image natural coordinates to display coordinates
     const scaleX = (drawWidth / zoom) / img.naturalWidth;
     const scaleY = (drawHeight / zoom) / img.naturalHeight;
-    
+
     // Apply zoom and offset
     ctx.save();
     ctx.translate(drawX + imageOffset.x, drawY + imageOffset.y);
@@ -2580,14 +2580,29 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                     pointerEvents: 'auto'
                   }}
                   onClick={(e) => {
+                    // Don't prevent default if clicking on select element
+                    if ((e.target as HTMLElement).tagName === 'SELECT') {
+                      e.stopPropagation();
+                      return;
+                    }
                     e.stopPropagation();
                     e.preventDefault();
                   }}
                   onMouseDown={(e) => {
+                    // Don't prevent default if clicking on select element
+                    if ((e.target as HTMLElement).tagName === 'SELECT') {
+                      e.stopPropagation();
+                      return;
+                    }
                     e.stopPropagation();
                     e.preventDefault();
                   }}
                   onMouseUp={(e) => {
+                    // Don't prevent default if clicking on select element
+                    if ((e.target as HTMLElement).tagName === 'SELECT') {
+                      e.stopPropagation();
+                      return;
+                    }
                     e.stopPropagation();
                     e.preventDefault();
                   }}
@@ -2596,19 +2611,41 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                     <Type className="w-4 h-4 text-blue-600" />
                     <span className="text-xs font-semibold text-gray-700">Add Text</span>
                   </div>
-                  <input
-                    type="text"
+                  <select
                     value={textInput}
                     onChange={(e) => {
                       e.stopPropagation();
-                      setTextInput(e.target.value);
+                      const selectedValue = e.target.value;
+                      setTextInput(selectedValue);
+                      // Auto-confirm when a selection is made, preserving the click position
+                      if (selectedValue && textInputPosition) {
+                        // Capture the position before any state updates
+                        const position = textInputPosition;
+                        setTimeout(() => {
+                          // Use the captured position to ensure text is placed at click location
+                          if (position && selectedValue.trim()) {
+                            const newDrawing: Drawing = {
+                              id: `drawing-${Date.now()}-${Math.random()}`,
+                              type: 'text',
+                              x: position.x,
+                              y: position.y,
+                              text: selectedValue.trim(),
+                              fontSize: fontSize,
+                              color: drawingColor,
+                              lineWidth: lineWidth
+                            };
+                            setDrawings(prev => [...prev, newDrawing]);
+                          }
+                          setTextInputPosition(null);
+                          setTextInput('');
+                          isTextInputActiveRef.current = false;
+                          setCurrentTool('none');
+                        }, 50);
+                      }
                     }}
                     onKeyDown={(e) => {
                       e.stopPropagation();
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleTextInputConfirm();
-                      } else if (e.key === 'Escape') {
+                      if (e.key === 'Escape') {
                         e.preventDefault();
                         setTextInputPosition(null);
                         setTextInput('');
@@ -2622,29 +2659,28 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                         // Focus is moving within the dialog, don't blur
                         return;
                       }
-                      // Small delay to allow Enter key to process first
-                      setTimeout(() => {
-                        // Double check that we're still supposed to blur (user might have clicked back)
-                        if (document.activeElement === textInputRef.current) {
-                          return; // User clicked back into input, don't close
-                        }
-                        if (textInput.trim()) {
-                          handleTextInputConfirm();
-                        } else {
+                      // Don't handle blur if a value was just selected (onChange handles it)
+                      // Only handle blur if no value is selected (user clicked away without selecting)
+                      if (!textInput.trim()) {
+                        setTimeout(() => {
+                          // Double check that we're still supposed to blur (user might have clicked back)
+                          if (document.activeElement === textInputRef.current) {
+                            return; // User clicked back into select, don't close
+                          }
                           setTextInputPosition(null);
                           setTextInput('');
-                        }
-                        setCurrentTool('none');
-                        isTextInputActiveRef.current = false;
-                      }, 200);
+                          setCurrentTool('none');
+                          isTextInputActiveRef.current = false;
+                        }, 200);
+                      }
                     }}
                     onClick={(e) => {
+                      // Only stop propagation, don't prevent default - allows dropdown to open
                       e.stopPropagation();
-                      e.preventDefault();
                     }}
                     onMouseDown={(e) => {
+                      // Only stop propagation, don't prevent default - allows dropdown to open
                       e.stopPropagation();
-                      e.preventDefault();
                     }}
                     onFocus={(e) => {
                       e.stopPropagation();
@@ -2652,10 +2688,15 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                     }}
                     autoFocus
                     ref={textInputRef}
-                    className="px-3 py-2 border-2 border-blue-300 rounded-lg text-black text-sm w-52 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-                    placeholder="Type your text here..."
-                  />
-                  <p className="text-xs text-gray-500 mt-2">Press Enter to confirm, Esc to cancel                  </p>
+                    className="px-3 py-2.5 border-2 border-blue-300 rounded-lg text-black text-sm w-52 bg-white cursor-pointer focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 hover:border-blue-400 transition-colors"
+                    style={{ zIndex: 1000 }}
+                  >
+                    <option value="">Select damage type...</option>
+                    <option value="Damage">Damage</option>
+                    <option value="Dent">Dent</option>
+                    <option value="Scratch">Scratch</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-2">Select a damage type to add                  </p>
                 </div>
               )}
             </div>
