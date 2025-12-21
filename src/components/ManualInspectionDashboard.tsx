@@ -316,6 +316,17 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   const [comments, setComments] = useState<{ original?: string; ai1?: string; ai2?: string; increment?: string }>({});
   const [savingComments, setSavingComments] = useState(false);
   const [uploadingImage, setUploadingImage] = useState<string | null>(null);
+  // Dropdown values for original image comments (based on image position 1-14)
+  const [originalImageDropdowns, setOriginalImageDropdowns] = useState<{
+    logo?: 'Yes' | 'No';
+    damageDetection?: 'No damage' | 'Damage' | 'Dent' | 'Scratch';
+    frontFloor?: 'Clean' | 'Dirty';
+    tissue?: 'Yes' | 'No';
+    rearFloor?: 'Clean' | 'Dirty';
+    bottle?: 'Yes' | 'No';
+  }>({});
+  // Track if AI images have been replaced
+  const [aiImagesReplaced, setAiImagesReplaced] = useState<{ model1: boolean; model2: boolean }>({ model1: false, model2: false });
   const [activeImageType, setActiveImageType] = useState<'original' | 'previous' | 'ai1' | 'ai2' | 'increment'>('original');
   const [activeImageBlobUrl, setActiveImageBlobUrl] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -324,6 +335,99 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const colors = ['#FF0000', '#00FF00']; // Only red and green
+
+  // Helper function to determine which dropdowns to show based on image position (processingOrder 1-14)
+  const getDropdownOptionsForImage = (processingOrder: number) => {
+    if (processingOrder >= 1 && processingOrder <= 10) {
+      // Images 1-10: Logo and Damage Detection
+      return {
+        showLogo: true,
+        showDamageDetection: true,
+        showFrontFloor: false,
+        showTissue: false,
+        showRearFloor: false,
+        showBottle: false
+      };
+    } else if (processingOrder === 11) {
+      // Image 11: Front Floor
+      return {
+        showLogo: false,
+        showDamageDetection: false,
+        showFrontFloor: true,
+        showTissue: false,
+        showRearFloor: false,
+        showBottle: false
+      };
+    } else if (processingOrder === 12) {
+      // Image 12: Tissue
+      return {
+        showLogo: false,
+        showDamageDetection: false,
+        showFrontFloor: false,
+        showTissue: true,
+        showRearFloor: false,
+        showBottle: false
+      };
+    } else if (processingOrder === 13) {
+      // Image 13: Rear Floor
+      return {
+        showLogo: false,
+        showDamageDetection: false,
+        showFrontFloor: false,
+        showTissue: false,
+        showRearFloor: true,
+        showBottle: false
+      };
+    } else if (processingOrder === 14) {
+      // Image 14: Bottle
+      return {
+        showLogo: false,
+        showDamageDetection: false,
+        showFrontFloor: false,
+        showTissue: false,
+        showRearFloor: false,
+        showBottle: true
+      };
+    }
+    // Default: no dropdowns
+    return {
+      showLogo: false,
+      showDamageDetection: false,
+      showFrontFloor: false,
+      showTissue: false,
+      showRearFloor: false,
+      showBottle: false
+    };
+  };
+
+  // Format AI image comment from dropdown values
+  const formatAIComment = (dropdowns: typeof originalImageDropdowns): string => {
+    const parts: string[] = [];
+    
+    // Always include Damage Detection if available
+    if (dropdowns.damageDetection) {
+      parts.push(`Damage Detection: ${dropdowns.damageDetection}`);
+    }
+    // Always include Logo if available (including "No")
+    if (dropdowns.logo) {
+      parts.push(`Logo: ${dropdowns.logo}`);
+    }
+    // For other fields (Front Floor, Tissue, Rear Floor, Bottle), include if set
+    if (dropdowns.frontFloor) {
+      parts.push(`Front Floor: ${dropdowns.frontFloor}`);
+    }
+    if (dropdowns.tissue) {
+      parts.push(`Tissue: ${dropdowns.tissue}`);
+    }
+    if (dropdowns.rearFloor) {
+      parts.push(`Rear Floor: ${dropdowns.rearFloor}`);
+    }
+    if (dropdowns.bottle) {
+      parts.push(`Bottle: ${dropdowns.bottle}`);
+    }
+    
+    return parts.join('\n');
+  };
 
   // Check access on mount
   useEffect(() => {
@@ -518,6 +622,33 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
     
     // Initialize comments from image
     setComments(image.imageComments || {});
+    
+    // Initialize dropdown values with defaults based on image position
+    const dropdownOptions = getDropdownOptionsForImage(image.processingOrder);
+    const initialDropdowns: typeof originalImageDropdowns = {};
+    if (dropdownOptions.showLogo) {
+      initialDropdowns.logo = 'No'; // Default
+    }
+    if (dropdownOptions.showDamageDetection) {
+      initialDropdowns.damageDetection = 'No damage'; // Default
+    }
+    if (dropdownOptions.showFrontFloor) {
+      initialDropdowns.frontFloor = 'Dirty'; // Default
+    }
+    if (dropdownOptions.showTissue) {
+      initialDropdowns.tissue = 'No'; // Default
+    }
+    if (dropdownOptions.showRearFloor) {
+      initialDropdowns.rearFloor = 'Dirty'; // Default
+    }
+    if (dropdownOptions.showBottle) {
+      initialDropdowns.bottle = 'No'; // Default
+    }
+    setOriginalImageDropdowns(initialDropdowns);
+    
+    // Track if AI images have been replaced (check if they exist and are different from original)
+    // For now, assume they haven't been replaced if they exist (we'll track this when user replaces them)
+    setAiImagesReplaced({ model1: false, model2: false });
 
     // Load existing annotations if any
     if (image.annotations) {
@@ -1503,6 +1634,12 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
           });
 
           if (response.success) {
+            // Track that this AI image has been replaced
+            setAiImagesReplaced(prev => ({
+              ...prev,
+              [modelType === 'model1' ? 'model1' : 'model2']: true
+            }));
+            
             // Update selected image
             setSelectedImage(response.image);
             // Update in pending images list
@@ -1889,6 +2026,12 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
         if (response.success) {
           console.log('[ManualInspection] AI image replaced:', response);
           
+          // Track that this AI image has been replaced
+          setAiImagesReplaced(prev => ({
+            ...prev,
+            [target === 'model1' ? 'model1' : 'model2']: true
+          }));
+          
           // Update selected image
           setSelectedImage(response.image);
           setPendingImages(prev => prev.map(img => 
@@ -2006,6 +2149,81 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
 
     setApproving(true);
     try {
+      // Auto-replace AI images if they haven't been replaced
+      const hasEdits = drawings.length > 0;
+      const imageToUse = hasEdits ? await exportCanvasAsImage() : null;
+      
+      // Replace AI image 1 if not replaced
+      if (!aiImagesReplaced.model1) {
+        try {
+          let s3Url: string;
+          if (imageToUse) {
+            // Use edited image
+            const fileName = `auto-replace-${selectedImage.id}-model1-${Date.now()}.jpg`;
+            const contentType = 'image/jpeg';
+            const { presignedUrl, s3Url: uploadedUrl } = await getPresignedUploadUrl({ fileName, contentType });
+            await uploadFileToS3({ presignedUrl, file: imageToUse, contentType });
+            s3Url = uploadedUrl;
+          } else {
+            // Use unedited original image
+            s3Url = selectedImage.imageUrl;
+          }
+          
+          await replaceAIImage(selectedImage.id, {
+            modelType: 'model1',
+            imageUrl: s3Url
+          });
+          setAiImagesReplaced(prev => ({ ...prev, model1: true }));
+        } catch (err) {
+          console.error('Failed to auto-replace AI image 1:', err);
+        }
+      }
+      
+      // Replace AI image 2 if not replaced
+      if (!aiImagesReplaced.model2) {
+        try {
+          let s3Url: string;
+          if (imageToUse) {
+            // Use edited image
+            const fileName = `auto-replace-${selectedImage.id}-model2-${Date.now()}.jpg`;
+            const contentType = 'image/jpeg';
+            const { presignedUrl, s3Url: uploadedUrl } = await getPresignedUploadUrl({ fileName, contentType });
+            await uploadFileToS3({ presignedUrl, file: imageToUse, contentType });
+            s3Url = uploadedUrl;
+          } else {
+            // Use unedited original image
+            s3Url = selectedImage.imageUrl;
+          }
+          
+          await replaceAIImage(selectedImage.id, {
+            modelType: 'model2',
+            imageUrl: s3Url
+          });
+          setAiImagesReplaced(prev => ({ ...prev, model2: true }));
+        } catch (err) {
+          console.error('Failed to auto-replace AI image 2:', err);
+        }
+      }
+      
+      // Format comments for AI images from dropdown values
+      const aiComment = formatAIComment(originalImageDropdowns);
+      const formattedComments: typeof comments = {
+        original: '', // Original image has no comment (only dropdowns)
+        ai1: aiComment, // Same comment for both AI images
+        ai2: aiComment,
+        increment: comments.increment || undefined
+      };
+      
+      // Save comments
+      if (aiComment || comments.increment) {
+        try {
+          await updateImageComments(selectedImage.id, { comments: formattedComments });
+        } catch (err) {
+          console.error('Failed to save comments:', err);
+        }
+      }
+      
+      // Approve image
       const annotationsJson = drawings.length > 0 ? JSON.stringify({ drawings }) : undefined;
       const response = await approveImage(selectedImage.id, annotationsJson);
       
@@ -2700,6 +2918,222 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                 </div>
               )}
             </div>
+            
+            {/* Original Image Comment Dropdowns - Below Canvas */}
+            {selectedImage && (() => {
+              const dropdownOptions = getDropdownOptionsForImage(selectedImage.processingOrder);
+              return (
+                <div className="mt-4 bg-white/10 backdrop-blur-lg rounded-xl p-4">
+                  <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+                    <Type className="w-5 h-5" />
+                    Original Image Comments
+                  </h3>
+                  <div className="space-y-3">
+                    {/* Images 1-10: Logo and Damage Detection */}
+                    {dropdownOptions.showLogo && (
+                      <div>
+                        <label className="text-gray-400 text-xs mb-1 block">Logo</label>
+                        <div className="flex gap-3">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="logo"
+                              value="Yes"
+                              checked={originalImageDropdowns.logo === 'Yes'}
+                              onChange={(e) => setOriginalImageDropdowns(prev => ({ ...prev, logo: 'Yes' as const }))}
+                              className="w-4 h-4 text-blue-500"
+                            />
+                            <span className="text-white text-sm">Yes</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="logo"
+                              value="No"
+                              checked={originalImageDropdowns.logo === 'No'}
+                              onChange={(e) => setOriginalImageDropdowns(prev => ({ ...prev, logo: 'No' as const }))}
+                              className="w-4 h-4 text-blue-500"
+                            />
+                            <span className="text-white text-sm">No</span>
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                    {dropdownOptions.showDamageDetection && (
+                      <div>
+                        <label className="text-gray-400 text-xs mb-1 block">Damage Detection</label>
+                        <div className="flex flex-wrap gap-3">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="damageDetection"
+                              value="No damage"
+                              checked={originalImageDropdowns.damageDetection === 'No damage'}
+                              onChange={(e) => setOriginalImageDropdowns(prev => ({ ...prev, damageDetection: 'No damage' as const }))}
+                              className="w-4 h-4 text-blue-500"
+                            />
+                            <span className="text-white text-sm">No damage</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="damageDetection"
+                              value="Damage"
+                              checked={originalImageDropdowns.damageDetection === 'Damage'}
+                              onChange={(e) => setOriginalImageDropdowns(prev => ({ ...prev, damageDetection: 'Damage' as const }))}
+                              className="w-4 h-4 text-blue-500"
+                            />
+                            <span className="text-white text-sm">Damage</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="damageDetection"
+                              value="Dent"
+                              checked={originalImageDropdowns.damageDetection === 'Dent'}
+                              onChange={(e) => setOriginalImageDropdowns(prev => ({ ...prev, damageDetection: 'Dent' as const }))}
+                              className="w-4 h-4 text-blue-500"
+                            />
+                            <span className="text-white text-sm">Dent</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="damageDetection"
+                              value="Scratch"
+                              checked={originalImageDropdowns.damageDetection === 'Scratch'}
+                              onChange={(e) => setOriginalImageDropdowns(prev => ({ ...prev, damageDetection: 'Scratch' as const }))}
+                              className="w-4 h-4 text-blue-500"
+                            />
+                            <span className="text-white text-sm">Scratch</span>
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                    {/* Image 11: Front Floor */}
+                    {dropdownOptions.showFrontFloor && (
+                      <div>
+                        <label className="text-gray-400 text-xs mb-1 block">Front Floor</label>
+                        <div className="flex gap-3">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="frontFloor"
+                              value="Clean"
+                              checked={originalImageDropdowns.frontFloor === 'Clean'}
+                              onChange={(e) => setOriginalImageDropdowns(prev => ({ ...prev, frontFloor: 'Clean' as const }))}
+                              className="w-4 h-4 text-blue-500"
+                            />
+                            <span className="text-white text-sm">Clean</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="frontFloor"
+                              value="Dirty"
+                              checked={originalImageDropdowns.frontFloor === 'Dirty'}
+                              onChange={(e) => setOriginalImageDropdowns(prev => ({ ...prev, frontFloor: 'Dirty' as const }))}
+                              className="w-4 h-4 text-blue-500"
+                            />
+                            <span className="text-white text-sm">Dirty</span>
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                    {/* Image 12: Tissue */}
+                    {dropdownOptions.showTissue && (
+                      <div>
+                        <label className="text-gray-400 text-xs mb-1 block">Tissue</label>
+                        <div className="flex gap-3">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="tissue"
+                              value="Yes"
+                              checked={originalImageDropdowns.tissue === 'Yes'}
+                              onChange={(e) => setOriginalImageDropdowns(prev => ({ ...prev, tissue: 'Yes' as const }))}
+                              className="w-4 h-4 text-blue-500"
+                            />
+                            <span className="text-white text-sm">Yes</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="tissue"
+                              value="No"
+                              checked={originalImageDropdowns.tissue === 'No'}
+                              onChange={(e) => setOriginalImageDropdowns(prev => ({ ...prev, tissue: 'No' as const }))}
+                              className="w-4 h-4 text-blue-500"
+                            />
+                            <span className="text-white text-sm">No</span>
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                    {/* Image 13: Rear Floor */}
+                    {dropdownOptions.showRearFloor && (
+                      <div>
+                        <label className="text-gray-400 text-xs mb-1 block">Rear Floor</label>
+                        <div className="flex gap-3">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="rearFloor"
+                              value="Clean"
+                              checked={originalImageDropdowns.rearFloor === 'Clean'}
+                              onChange={(e) => setOriginalImageDropdowns(prev => ({ ...prev, rearFloor: 'Clean' as const }))}
+                              className="w-4 h-4 text-blue-500"
+                            />
+                            <span className="text-white text-sm">Clean</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="rearFloor"
+                              value="Dirty"
+                              checked={originalImageDropdowns.rearFloor === 'Dirty'}
+                              onChange={(e) => setOriginalImageDropdowns(prev => ({ ...prev, rearFloor: 'Dirty' as const }))}
+                              className="w-4 h-4 text-blue-500"
+                            />
+                            <span className="text-white text-sm">Dirty</span>
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                    {/* Image 14: Bottle */}
+                    {dropdownOptions.showBottle && (
+                      <div>
+                        <label className="text-gray-400 text-xs mb-1 block">Bottle</label>
+                        <div className="flex gap-3">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="bottle"
+                              value="Yes"
+                              checked={originalImageDropdowns.bottle === 'Yes'}
+                              onChange={(e) => setOriginalImageDropdowns(prev => ({ ...prev, bottle: 'Yes' as const }))}
+                              className="w-4 h-4 text-blue-500"
+                            />
+                            <span className="text-white text-sm">Yes</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="bottle"
+                              value="No"
+                              checked={originalImageDropdowns.bottle === 'No'}
+                              onChange={(e) => setOriginalImageDropdowns(prev => ({ ...prev, bottle: 'No' as const }))}
+                              className="w-4 h-4 text-blue-500"
+                            />
+                            <span className="text-white text-sm">No</span>
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
             </div>
 
@@ -2730,13 +3164,6 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                         </div>
                       )}
                     </div>
-                    <textarea
-                      value={comments.ai1 || ''}
-                      onChange={(e) => setComments(prev => ({ ...prev, ai1: e.target.value }))}
-                      placeholder="Add comment for AI Model 1..."
-                      className="w-full px-2 py-1 bg-white/10 border border-white/20 rounded text-white text-xs placeholder-gray-500 focus:outline-none focus:border-blue-500 resize-none"
-                      rows={2}
-                    />
                   </div>
 
                   {/* AI Model 2 */}
@@ -2758,13 +3185,6 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                         </div>
                       )}
                     </div>
-                    <textarea
-                      value={comments.ai2 || ''}
-                      onChange={(e) => setComments(prev => ({ ...prev, ai2: e.target.value }))}
-                      placeholder="Add comment for AI Model 2..."
-                      className="w-full px-2 py-1 bg-white/10 border border-white/20 rounded text-white text-xs placeholder-gray-500 focus:outline-none focus:border-blue-500 resize-none"
-                      rows={2}
-                    />
                   </div>
 
                   {/* Previous Day */}
@@ -2817,27 +3237,8 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                 </div>
               </div>
 
-              {/* Save Comments & Actions */}
+              {/* Actions */}
               <div className="space-y-2">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={handleSaveComments}
-                  disabled={savingComments}
-                  className="w-full bg-blue-500/20 border border-blue-500/30 text-blue-400 font-semibold py-2 px-4 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 text-sm"
-                >
-                  {savingComments ? (
-                    <>
-                      <Loader className="w-4 h-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4" />
-                      Save Comments
-                    </>
-                  )}
-                </motion.button>
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}

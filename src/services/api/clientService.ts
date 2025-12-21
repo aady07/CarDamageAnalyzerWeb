@@ -29,7 +29,9 @@ export interface DashboardCar {
   sessions: DashboardSessions;
   status: string;
   pdfUrl?: string | null;
+  pdfPath?: string | null;
   pdfReady: boolean;
+  approvalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
   totalDamagePercentage: number | null;
   estimatedCost: number | null;
   createdAt: string;

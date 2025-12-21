@@ -189,7 +189,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     });
   };
 
-  const getSessionBadge = (session: { status: 'done' | 'pending'; imageCount: number } | undefined, sessionName: 'MORNING' | 'EVENING') => {
+  const getSessionBadge = (session: { status: 'done' | 'pending'; imageCount: number } | undefined, sessionName: string) => {
     if (!session) {
       return (
         <span className="px-2 py-1 rounded text-xs font-semibold bg-gray-500/20 text-gray-400 border border-gray-500/30">
@@ -211,6 +211,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         </span>
       );
     }
+  };
+
+  // Get session display name based on client
+  const getSessionDisplayName = (inspection: AdminInspection, sessionType: 'morning' | 'evening'): string => {
+    const clientName = inspection.clientName;
+    if (clientName === 'REFUX') {
+      return sessionType === 'morning' ? '1st Inspection' : '2nd Inspection';
+    } else if (clientName === 'SNAPCABS') {
+      return sessionType === 'morning' ? 'MORNING' : 'EVENING';
+    }
+    return ''; // Other clients don't show session tags
   };
 
   const getOverallStatus = (inspection: AdminInspection): string => {
@@ -770,15 +781,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                   </div>
 
                   {/* Session Badges */}
-                  {inspection.sessionBreakdown && (
+                  {inspection.sessionBreakdown && (inspection.clientName === 'SNAPCABS' || inspection.clientName === 'REFUX') && (
                     <div className="mb-3 md:mb-4 flex flex-wrap items-center gap-2">
-                      {getSessionBadge(inspection.sessionBreakdown.morning, 'MORNING')}
-                      {getSessionBadge(inspection.sessionBreakdown.evening, 'EVENING')}
-                      {inspection.sessionBreakdown.morning && inspection.sessionBreakdown.evening && (
-                        <span className="text-gray-400 text-xs">
-                          {inspection.sessionBreakdown.morning.imageCount} MORNING, {inspection.sessionBreakdown.evening.imageCount} EVENING
-                        </span>
-                      )}
+                      {(() => {
+                        const morningName = getSessionDisplayName(inspection, 'morning');
+                        const eveningName = getSessionDisplayName(inspection, 'evening');
+                        return (
+                          <>
+                            {morningName && getSessionBadge(inspection.sessionBreakdown.morning, morningName)}
+                            {eveningName && getSessionBadge(inspection.sessionBreakdown.evening, eveningName)}
+                            {inspection.sessionBreakdown.morning && inspection.sessionBreakdown.evening && (
+                              <span className="text-gray-400 text-xs">
+                                {inspection.sessionBreakdown.morning.imageCount} {morningName}, {inspection.sessionBreakdown.evening.imageCount} {eveningName}
+                              </span>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
 
