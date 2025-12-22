@@ -418,3 +418,114 @@ export async function sendLockHeartbeat(imageId: number): Promise<{ success: boo
   return data;
 }
 
+/**
+ * Bulk Operations
+ */
+export interface BulkApproveRequest {
+  imageIds: number[];
+}
+
+export interface BulkApproveResponse {
+  success: boolean;
+  message: string;
+  successCount: number;
+  failedCount: number;
+  totalCount: number;
+  successList: Array<{ imageId: number; inspectionId: number }>;
+  failedList: Array<{ imageId: number; error: string }>;
+}
+
+export interface BulkRemoveRequest {
+  imageIds: number[];
+}
+
+export interface BulkRemoveResponse {
+  success: boolean;
+  message: string;
+  successCount: number;
+  failedCount: number;
+  totalCount: number;
+  failedList: Array<{ imageId: number; error: string }>;
+}
+
+export interface BulkFilterRequest {
+  filters: {
+    clientName?: string;
+    inspectionId?: number;
+    olderThanDays?: number;
+  };
+}
+
+export interface BulkFilterApproveResponse {
+  success: boolean;
+  message: string;
+  filters: {
+    clientName?: string;
+    inspectionId?: number;
+    olderThanDays?: number;
+  };
+  successCount: number;
+  failedCount: number;
+  totalCount: number;
+  successList: Array<{ imageId: number; inspectionId: number }>;
+  failedList: Array<{ imageId: number; error: string }>;
+}
+
+export interface BulkFilterRemoveResponse {
+  success: boolean;
+  message: string;
+  filters: {
+    clientName?: string;
+    inspectionId?: number;
+    olderThanDays?: number;
+  };
+  successCount: number;
+  failedCount: number;
+  totalCount: number;
+  failedList: Array<{ imageId: number; error: string }>;
+}
+
+/**
+ * Bulk approve images by IDs
+ */
+export async function bulkApproveImages(request: BulkApproveRequest): Promise<BulkApproveResponse> {
+  const { data } = await apiClient.post<BulkApproveResponse>(
+    '/api/manual-inspection/images/bulk-approve',
+    request
+  );
+  return data;
+}
+
+/**
+ * Bulk remove images from queue by IDs
+ */
+export async function bulkRemoveImages(request: BulkRemoveRequest): Promise<BulkRemoveResponse> {
+  const { data } = await apiClient.post<BulkRemoveResponse>(
+    '/api/manual-inspection/images/bulk-remove',
+    request
+  );
+  return data;
+}
+
+/**
+ * Bulk approve images by filters
+ */
+export async function bulkApproveFiltered(request: BulkFilterRequest): Promise<BulkFilterApproveResponse> {
+  const { data } = await apiClient.post<BulkFilterApproveResponse>(
+    '/api/manual-inspection/images/bulk-approve-filtered',
+    request
+  );
+  return data;
+}
+
+/**
+ * Bulk remove images from queue by filters
+ */
+export async function bulkRemoveFiltered(request: BulkFilterRequest): Promise<BulkFilterRemoveResponse> {
+  const { data } = await apiClient.post<BulkFilterRemoveResponse>(
+    '/api/manual-inspection/images/bulk-remove-filtered',
+    request
+  );
+  return data;
+}
+
