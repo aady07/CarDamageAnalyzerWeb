@@ -89,7 +89,7 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
         });
       
       // Check Eco Mobility access
-      checkClientAccess('ECOMOBILITY')
+      checkClientAccess('ECO MOBILITY')
         .then(response => {
           setHasEcoMobilityAccess(response.hasAccess);
         })
@@ -424,7 +424,7 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <ClientDashboard onBack={() => navigateTo('landing')} clientName="ECOMOBILITY" />
+            <ClientDashboard onBack={() => navigateTo('landing')} clientName="ECO MOBILITY" />
           </motion.div>
         )}
 
