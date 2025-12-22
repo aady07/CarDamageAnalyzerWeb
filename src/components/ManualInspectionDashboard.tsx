@@ -3865,7 +3865,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                     <option value="">All Clients</option>
                     <option value="SNAPCABS">SNAPCABS</option>
                     <option value="REFUX">REFUX</option>
-                    <option value="ECOMOBILITY">ECO MOBILITY</option>
+                    <option value="ECO MOBILITY">ECO MOBILITY</option>
                   </select>
                 </div>
                 <div className="relative inspection-dropdown-container md:col-span-1" style={{ zIndex: showInspectionDropdown ? 1000 : 'auto' }}>
