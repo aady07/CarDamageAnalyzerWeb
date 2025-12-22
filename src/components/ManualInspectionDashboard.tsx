@@ -44,7 +44,11 @@ import {
   unlockImage,
   getLockStatus,
   sendLockHeartbeat,
-  PaginationInfo
+  PaginationInfo,
+  bulkApproveImages,
+  bulkRemoveImages,
+  bulkApproveFiltered,
+  bulkRemoveFiltered
 } from '../services/api/manualInspectionService';
 import { cognitoService } from '../services/cognitoService';
 import { getPresignedUploadUrl, uploadFileToS3 } from '../services/api/uploadService';
@@ -267,6 +271,28 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   const [successMessage, setSuccessMessage] = useState<string>('');
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   
+  // Bulk operations state
+  const [selectedImageIds, setSelectedImageIds] = useState<number[]>([]);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{ success: number; failed: number; message?: string } | null>(null);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [showInspectionDropdown, setShowInspectionDropdown] = useState(false);
+  const [bulkFilters, setBulkFilters] = useState<{
+    clientName: string;
+    inspectionIds: number[];
+    olderThanDays: string;
+  }>({
+    clientName: '',
+    inspectionIds: [],
+    olderThanDays: ''
+  });
+  
+  // Get unique inspection IDs from pending images
+  const uniqueInspectionIds = React.useMemo(() => {
+    const ids = new Set(pendingImages.map(img => img.inspectionId));
+    return Array.from(ids).sort((a, b) => a - b);
+  }, [pendingImages]);
+  
   // Sorting and filtering
   const [sortBy, setSortBy] = useState<'createdAt' | 'carNumber' | 'status'>('createdAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -428,6 +454,34 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
     
     return parts.join('\n');
   };
+
+  // Auto-clear success messages after 5 seconds
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => {
+        setSuccessMessage('');
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage]);
+
+  // Close inspection dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest('.inspection-dropdown-container')) {
+        setShowInspectionDropdown(false);
+      }
+    };
+
+    if (showInspectionDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showInspectionDropdown]);
 
   // Check access on mount
   useEffect(() => {
@@ -814,6 +868,302 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
     setCurrentTool('none');
     setImageLoaded(false);
     setImageLoadError(false);
+  };
+
+  // Bulk operation handlers
+  const toggleImageSelection = (imageId: number) => {
+    setSelectedImageIds(prev => 
+      prev.includes(imageId) 
+        ? prev.filter(id => id !== imageId)
+        : [...prev, imageId]
+    );
+  };
+
+  const selectAllImages = () => {
+    setSelectedImageIds(pendingImages.map(img => img.id));
+  };
+
+  const deselectAllImages = () => {
+    setSelectedImageIds([]);
+  };
+
+  const handleBulkApprove = async () => {
+    if (selectedImageIds.length === 0) return;
+    
+    setBulkLoading(true);
+    setBulkResult(null);
+    setError('');
+    
+    try {
+      const response = await bulkApproveImages({ imageIds: selectedImageIds });
+      setBulkResult({
+        success: response.successCount,
+        failed: response.failedCount,
+        message: response.message
+      });
+      
+      if (response.successCount > 0) {
+        setSuccessMessage(`Successfully approved ${response.successCount} image(s)`);
+        setSelectedImageIds([]);
+        // Refresh the image list
+        await fetchPendingImages();
+      }
+      
+      if (response.failedCount > 0) {
+        setError(`Failed to approve ${response.failedCount} image(s). Check console for details.`);
+        console.error('Failed images:', response.failedList);
+      }
+    } catch (err: any) {
+      console.error('[ManualInspection] Bulk approve failed:', err);
+      setError(err.response?.data?.message || 'Failed to approve images. Please try again.');
+      setBulkResult({ success: 0, failed: selectedImageIds.length });
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const handleBulkRemove = async () => {
+    if (selectedImageIds.length === 0) return;
+    
+    if (!confirm(`Are you sure you want to remove ${selectedImageIds.length} image(s) from the queue?`)) {
+      return;
+    }
+    
+    setBulkLoading(true);
+    setBulkResult(null);
+    setError('');
+    
+    try {
+      const response = await bulkRemoveImages({ imageIds: selectedImageIds });
+      setBulkResult({
+        success: response.successCount,
+        failed: response.failedCount,
+        message: response.message
+      });
+      
+      if (response.successCount > 0) {
+        setSuccessMessage(`Successfully removed ${response.successCount} image(s) from queue`);
+        setSelectedImageIds([]);
+        // Refresh the image list
+        await fetchPendingImages();
+      }
+      
+      if (response.failedCount > 0) {
+        setError(`Failed to remove ${response.failedCount} image(s). Check console for details.`);
+        console.error('Failed images:', response.failedList);
+      }
+    } catch (err: any) {
+      console.error('[ManualInspection] Bulk remove failed:', err);
+      setError(err.response?.data?.message || 'Failed to remove images. Please try again.');
+      setBulkResult({ success: 0, failed: selectedImageIds.length });
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const handleFilterApprove = async () => {
+    const hasClientName = bulkFilters.clientName;
+    const hasInspectionIds = bulkFilters.inspectionIds.length > 0;
+    const hasOlderThanDays = bulkFilters.olderThanDays;
+    
+    if (!hasClientName && !hasInspectionIds && !hasOlderThanDays) {
+      setError('Please select at least one filter');
+      return;
+    }
+    
+    const inspectionCount = bulkFilters.inspectionIds.length;
+    const confirmMessage = inspectionCount > 0
+      ? `Approve all images matching these filters? (${inspectionCount} inspection${inspectionCount > 1 ? 's' : ''} selected)`
+      : `Approve all images matching these filters?`;
+    
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+    
+    setBulkLoading(true);
+    setBulkResult(null);
+    setError('');
+    
+    try {
+      let totalSuccess = 0;
+      let totalFailed = 0;
+      const allFailedList: Array<{ imageId: number; error: string }> = [];
+      
+      // If multiple inspection IDs are selected, make separate calls for each
+      if (hasInspectionIds && bulkFilters.inspectionIds.length > 0) {
+        const promises = bulkFilters.inspectionIds.map(async (inspectionId) => {
+          const activeFilters: any = {};
+          if (hasClientName) activeFilters.clientName = bulkFilters.clientName;
+          activeFilters.inspectionId = inspectionId;
+          if (hasOlderThanDays) activeFilters.olderThanDays = parseInt(bulkFilters.olderThanDays);
+          
+          try {
+            const response = await bulkApproveFiltered({ filters: activeFilters });
+            totalSuccess += response.successCount;
+            totalFailed += response.failedCount;
+            if (response.failedList) {
+              allFailedList.push(...response.failedList);
+            }
+            return response;
+          } catch (err: any) {
+            console.error(`[ManualInspection] Filter approve failed for inspection ${inspectionId}:`, err);
+            totalFailed += 1;
+            return null;
+          }
+        });
+        
+        await Promise.all(promises);
+      } else {
+        // Single call without inspection ID filter
+        const activeFilters: any = {};
+        if (hasClientName) activeFilters.clientName = bulkFilters.clientName;
+        if (hasOlderThanDays) activeFilters.olderThanDays = parseInt(bulkFilters.olderThanDays);
+        
+        const response = await bulkApproveFiltered({ filters: activeFilters });
+        totalSuccess = response.successCount;
+        totalFailed = response.failedCount;
+        if (response.failedList) {
+          allFailedList.push(...response.failedList);
+        }
+      }
+      
+      setBulkResult({
+        success: totalSuccess,
+        failed: totalFailed,
+        message: `Processed ${totalSuccess + totalFailed} images`
+      });
+      
+      if (totalSuccess > 0) {
+        setSuccessMessage(`Successfully approved ${totalSuccess} image(s) matching filters`);
+        // Refresh the image list
+        await fetchPendingImages();
+      }
+      
+      if (totalFailed > 0) {
+        setError(`Failed to approve ${totalFailed} image(s). Check console for details.`);
+        console.error('Failed images:', allFailedList);
+      }
+    } catch (err: any) {
+      console.error('[ManualInspection] Filter approve failed:', err);
+      setError(err.response?.data?.message || 'Failed to approve images. Please try again.');
+      setBulkResult({ success: 0, failed: 0 });
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const toggleInspectionIdSelection = (inspectionId: number) => {
+    setBulkFilters(prev => ({
+      ...prev,
+      inspectionIds: prev.inspectionIds.includes(inspectionId)
+        ? prev.inspectionIds.filter(id => id !== inspectionId)
+        : [...prev.inspectionIds, inspectionId]
+    }));
+  };
+
+  const selectAllInspectionIds = () => {
+    setBulkFilters(prev => ({
+      ...prev,
+      inspectionIds: uniqueInspectionIds
+    }));
+  };
+
+  const deselectAllInspectionIds = () => {
+    setBulkFilters(prev => ({
+      ...prev,
+      inspectionIds: []
+    }));
+  };
+
+  const handleFilterRemove = async () => {
+    const hasClientName = bulkFilters.clientName;
+    const hasInspectionIds = bulkFilters.inspectionIds.length > 0;
+    const hasOlderThanDays = bulkFilters.olderThanDays;
+    
+    if (!hasClientName && !hasInspectionIds && !hasOlderThanDays) {
+      setError('Please select at least one filter');
+      return;
+    }
+    
+    const inspectionCount = bulkFilters.inspectionIds.length;
+    const confirmMessage = inspectionCount > 0
+      ? `Remove all images matching these filters from the queue? (${inspectionCount} inspection${inspectionCount > 1 ? 's' : ''} selected)`
+      : `Remove all images matching these filters from the queue?`;
+    
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+    
+    setBulkLoading(true);
+    setBulkResult(null);
+    setError('');
+    
+    try {
+      let totalSuccess = 0;
+      let totalFailed = 0;
+      const allFailedList: Array<{ imageId: number; error: string }> = [];
+      
+      // If multiple inspection IDs are selected, make separate calls for each
+      if (hasInspectionIds && bulkFilters.inspectionIds.length > 0) {
+        const promises = bulkFilters.inspectionIds.map(async (inspectionId) => {
+          const activeFilters: any = {};
+          if (hasClientName) activeFilters.clientName = bulkFilters.clientName;
+          activeFilters.inspectionId = inspectionId;
+          if (hasOlderThanDays) activeFilters.olderThanDays = parseInt(bulkFilters.olderThanDays);
+          
+          try {
+            const response = await bulkRemoveFiltered({ filters: activeFilters });
+            totalSuccess += response.successCount;
+            totalFailed += response.failedCount;
+            if (response.failedList) {
+              allFailedList.push(...response.failedList);
+            }
+            return response;
+          } catch (err: any) {
+            console.error(`[ManualInspection] Filter remove failed for inspection ${inspectionId}:`, err);
+            totalFailed += 1;
+            return null;
+          }
+        });
+        
+        await Promise.all(promises);
+      } else {
+        // Single call without inspection ID filter
+        const activeFilters: any = {};
+        if (hasClientName) activeFilters.clientName = bulkFilters.clientName;
+        if (hasOlderThanDays) activeFilters.olderThanDays = parseInt(bulkFilters.olderThanDays);
+        
+        const response = await bulkRemoveFiltered({ filters: activeFilters });
+        totalSuccess = response.successCount;
+        totalFailed = response.failedCount;
+        if (response.failedList) {
+          allFailedList.push(...response.failedList);
+        }
+      }
+      
+      setBulkResult({
+        success: totalSuccess,
+        failed: totalFailed,
+        message: `Processed ${totalSuccess + totalFailed} images`
+      });
+      
+      if (totalSuccess > 0) {
+        setSuccessMessage(`Successfully removed ${totalSuccess} image(s) from queue`);
+        // Refresh the image list
+        await fetchPendingImages();
+      }
+      
+      if (totalFailed > 0) {
+        setError(`Failed to remove ${totalFailed} image(s). Check console for details.`);
+        console.error('Failed images:', allFailedList);
+      }
+    } catch (err: any) {
+      console.error('[ManualInspection] Filter remove failed:', err);
+      setError(err.response?.data?.message || 'Failed to remove images. Please try again.');
+      setBulkResult({ success: 0, failed: 0 });
+    } finally {
+      setBulkLoading(false);
+    }
   };
 
   // Precise coordinate conversion helper - FIXED VERSION
@@ -3347,6 +3697,46 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
         </div>
       </div>
 
+      {/* Success/Error Messages */}
+      <div className="px-4 md:px-8 pb-4">
+        <AnimatePresence>
+          {successMessage && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="mb-4 bg-green-500/20 border border-green-500/30 text-green-400 px-4 py-3 rounded-xl flex items-center gap-2"
+            >
+              <CheckCircle className="w-5 h-5" />
+              <span>{successMessage}</span>
+              <button
+                onClick={() => setSuccessMessage('')}
+                className="ml-auto text-green-300 hover:text-green-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </motion.div>
+          )}
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="mb-4 bg-red-500/20 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl flex items-center gap-2"
+            >
+              <AlertCircle className="w-5 h-5" />
+              <span>{error}</span>
+              <button
+                onClick={() => setError('')}
+                className="ml-auto text-red-300 hover:text-red-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
       {/* Filters and Search */}
       <div className="px-4 md:px-8 pb-4">
         <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4 space-y-4">
@@ -3434,6 +3824,300 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
         </div>
       </div>
 
+      {/* Bulk Operations Filter Panel */}
+      <div className="px-4 md:px-8 pb-4" style={{ position: 'relative', zIndex: showFilterPanel ? 100 : 'auto' }}>
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => setShowFilterPanel(!showFilterPanel)}
+          className="w-full bg-blue-500/20 border border-blue-500/30 backdrop-blur-lg rounded-xl p-3 text-white hover:bg-blue-500/30 flex items-center justify-between transition-all duration-200"
+        >
+          <div className="flex items-center gap-2">
+            <Filter className="w-5 h-5" />
+            <span className="font-semibold">Bulk Operations</span>
+          </div>
+          <motion.div
+            animate={{ rotate: showFilterPanel ? 180 : 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <ChevronRight className="w-5 h-5" />
+          </motion.div>
+        </motion.button>
+        
+        <AnimatePresence>
+          {showFilterPanel && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="bg-white/10 backdrop-blur-lg rounded-xl p-4 mt-2 space-y-4"
+              style={{ overflow: 'visible', position: 'relative' }}
+            >
+              <h3 className="text-white font-semibold mb-3">Filter-Based Bulk Operations</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-gray-400 text-sm mb-1 block">Client Name</label>
+                  <select
+                    value={bulkFilters.clientName}
+                    onChange={(e) => setBulkFilters(prev => ({ ...prev, clientName: e.target.value }))}
+                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="">All Clients</option>
+                    <option value="SNAPCABS">SNAPCABS</option>
+                    <option value="REFUX">REFUX</option>
+                    <option value="ECOMOBILITY">ECO MOBILITY</option>
+                  </select>
+                </div>
+                <div className="relative inspection-dropdown-container md:col-span-1" style={{ zIndex: showInspectionDropdown ? 1000 : 'auto' }}>
+                  <label className="text-gray-400 text-sm mb-1 block">
+                    Inspection ID
+                    {bulkFilters.inspectionIds.length > 0 && (
+                      <span className="ml-2 text-blue-400 text-xs">
+                        ({bulkFilters.inspectionIds.length} selected)
+                      </span>
+                    )}
+                  </label>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowInspectionDropdown(!showInspectionDropdown)}
+                      className={`w-full px-3 py-2 bg-white/10 border rounded-lg text-white text-sm focus:outline-none focus:border-blue-500 flex items-center justify-between hover:bg-white/15 transition-colors ${
+                        bulkFilters.inspectionIds.length > 0 
+                          ? 'border-blue-500/50 bg-blue-500/10' 
+                          : 'border-white/20'
+                      }`}
+                    >
+                      <span className={bulkFilters.inspectionIds.length > 0 ? 'text-white font-medium' : 'text-gray-500'}>
+                        {bulkFilters.inspectionIds.length === 0
+                          ? `Select inspection IDs... (${uniqueInspectionIds.length} available)`
+                          : `${bulkFilters.inspectionIds.length} of ${uniqueInspectionIds.length} selected`}
+                      </span>
+                      <ChevronRight
+                        className={`w-4 h-4 transition-transform ${showInspectionDropdown ? 'rotate-90' : ''}`}
+                      />
+                    </button>
+                    
+                    {showInspectionDropdown && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                        className="absolute z-[9999] w-full mt-1 bg-white/10 backdrop-blur-xl border-2 border-blue-500/30 rounded-lg shadow-2xl overflow-hidden"
+                        style={{ 
+                          maxHeight: '450px',
+                          position: 'absolute',
+                          top: '100%',
+                          left: 0,
+                          right: 0,
+                          marginTop: '4px'
+                        }}
+                      >
+                        <div className="p-3 border-b border-white/20 flex items-center justify-between bg-white/5 sticky top-0">
+                          <span className="text-white text-sm font-semibold">
+                            {uniqueInspectionIds.length} available inspection{uniqueInspectionIds.length !== 1 ? 's' : ''}
+                          </span>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                selectAllInspectionIds();
+                              }}
+                              className="px-3 py-1.5 text-xs bg-blue-500/30 border border-blue-500/50 text-blue-200 rounded-lg hover:bg-blue-500/40 transition-colors font-medium"
+                            >
+                              Select All
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deselectAllInspectionIds();
+                              }}
+                              className="px-3 py-1.5 text-xs bg-gray-500/30 border border-gray-500/50 text-gray-200 rounded-lg hover:bg-gray-500/40 transition-colors font-medium"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+                        <div className="overflow-y-auto" style={{ maxHeight: '350px' }}>
+                          {uniqueInspectionIds.length === 0 ? (
+                            <div className="p-4 text-gray-400 text-sm text-center">
+                              No inspection IDs available in queue
+                            </div>
+                          ) : (
+                            <div className="divide-y divide-white/10">
+                              {uniqueInspectionIds.map((inspectionId) => {
+                                const isSelected = bulkFilters.inspectionIds.includes(inspectionId);
+                                const imageCount = pendingImages.filter(img => img.inspectionId === inspectionId).length;
+                                return (
+                                  <label
+                                    key={inspectionId}
+                                    className={`flex items-center gap-3 p-3 cursor-pointer transition-colors ${
+                                      isSelected ? 'bg-blue-500/20' : 'hover:bg-white/10'
+                                    }`}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() => toggleInspectionIdSelection(inspectionId)}
+                                      className="w-5 h-5 text-blue-500 rounded focus:ring-2 focus:ring-blue-500 cursor-pointer flex-shrink-0"
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-white text-sm font-medium">
+                                        Inspection #{inspectionId}
+                                      </div>
+                                      <div className="text-gray-400 text-xs mt-0.5">
+                                        {imageCount} image{imageCount !== 1 ? 's' : ''} in queue
+                                      </div>
+                                    </div>
+                                    {isSelected && (
+                                      <CheckCircle className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                                    )}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-gray-400 text-sm mb-1 block">Older Than (Days)</label>
+                  <input
+                    type="number"
+                    value={bulkFilters.olderThanDays}
+                    onChange={(e) => setBulkFilters(prev => ({ ...prev, olderThanDays: e.target.value }))}
+                    placeholder="Enter days"
+                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 pt-2">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleFilterApprove}
+                  disabled={bulkLoading}
+                  className="px-4 py-2 bg-green-500/20 border border-green-500/30 text-green-300 rounded-lg hover:bg-green-500/30 disabled:opacity-50 flex items-center gap-2"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  Approve All Matching
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleFilterRemove}
+                  disabled={bulkLoading}
+                  className="px-4 py-2 bg-red-500/20 border border-red-500/30 text-red-300 rounded-lg hover:bg-red-500/30 disabled:opacity-50 flex items-center gap-2"
+                >
+                  <X className="w-4 h-4" />
+                  Remove All Matching
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => {
+                    setBulkFilters({ clientName: '', inspectionIds: [], olderThanDays: '' });
+                    setShowInspectionDropdown(false);
+                  }}
+                  className="px-4 py-2 bg-gray-500/20 border border-gray-500/30 text-gray-300 rounded-lg hover:bg-gray-500/30 flex items-center gap-2"
+                >
+                  Clear Filters
+                </motion.button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Bulk Actions Bar */}
+      {selectedImageIds.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="px-4 md:px-8 pb-4"
+        >
+          <div className="bg-blue-500/20 border border-blue-500/30 backdrop-blur-lg rounded-xl p-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <span className="text-white font-semibold">
+                  {selectedImageIds.length} image{selectedImageIds.length !== 1 ? 's' : ''} selected
+                </span>
+                <div className="flex gap-2">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={selectAllImages}
+                    className="px-3 py-1.5 bg-white/10 border border-white/20 text-white rounded-lg hover:bg-white/20 text-sm"
+                  >
+                    Select All
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={deselectAllImages}
+                    className="px-3 py-1.5 bg-white/10 border border-white/20 text-white rounded-lg hover:bg-white/20 text-sm"
+                  >
+                    Deselect All
+                  </motion.button>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleBulkApprove}
+                  disabled={bulkLoading}
+                  className="px-4 py-2 bg-green-500/20 border border-green-500/30 text-green-300 rounded-lg hover:bg-green-500/30 disabled:opacity-50 flex items-center gap-2"
+                >
+                  {bulkLoading ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CheckCircle className="w-4 h-4" />
+                  )}
+                  Approve Selected
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleBulkRemove}
+                  disabled={bulkLoading}
+                  className="px-4 py-2 bg-red-500/20 border border-red-500/30 text-red-300 rounded-lg hover:bg-red-500/30 disabled:opacity-50 flex items-center gap-2"
+                >
+                  {bulkLoading ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <X className="w-4 h-4" />
+                  )}
+                  Remove Selected
+                </motion.button>
+              </div>
+            </div>
+            {bulkResult && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className={`mt-3 p-3 rounded-lg ${
+                  bulkResult.failed > 0
+                    ? 'bg-yellow-500/20 border border-yellow-500/30'
+                    : 'bg-green-500/20 border border-green-500/30'
+                }`}
+              >
+                <div className="flex items-center gap-2 text-sm">
+                  {bulkResult.success > 0 && (
+                    <span className="text-green-300">✓ {bulkResult.success} succeeded</span>
+                  )}
+                  {bulkResult.failed > 0 && (
+                    <span className="text-yellow-300">⚠ {bulkResult.failed} failed</span>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </div>
+        </motion.div>
+      )}
+
       {/* Images Grid */}
       <div className="px-4 md:px-8 pb-8">
         {pendingImages.length === 0 ? (
@@ -3480,9 +4164,11 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                   exit={{ opacity: 0, y: -20 }}
                   transition={{ delay: index * 0.05 }}
                   whileHover={{ scale: 1.02 }}
-                  className={`bg-white/10 backdrop-blur-lg rounded-xl p-4 border transition-all duration-200 ${
+                  className={`relative bg-white/10 backdrop-blur-lg rounded-xl p-4 border transition-all duration-200 ${
                     image.lockInfo?.isLocked && !image.lockInfo?.isCurrentUser
                       ? 'border-red-500/50 opacity-60 cursor-not-allowed'
+                      : selectedImageIds.includes(image.id)
+                      ? 'border-blue-500/50 bg-blue-500/10'
                       : 'border-white/20 hover:border-white/30 cursor-pointer'
                   }`}
                   onClick={() => {
@@ -3491,6 +4177,25 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                     }
                   }}
                 >
+                  {/* Checkbox for selection */}
+                  <div 
+                    className="absolute top-2 left-2 z-10"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleImageSelection(image.id);
+                    }}
+                  >
+                    <div className={`w-6 h-6 rounded border-2 flex items-center justify-center cursor-pointer transition-all ${
+                      selectedImageIds.includes(image.id)
+                        ? 'bg-blue-500 border-blue-500'
+                        : 'bg-white/20 border-white/40 hover:border-white/60'
+                    }`}>
+                      {selectedImageIds.includes(image.id) && (
+                        <CheckCircle className="w-4 h-4 text-white" />
+                      )}
+                    </div>
+                  </div>
+                  
                   <div className="relative aspect-video bg-black rounded-lg mb-3 overflow-hidden">
                     <ImageThumbnail image={image} />
                     <div className="absolute top-2 right-2 bg-yellow-500/90 text-black text-xs font-bold px-2 py-1 rounded">
@@ -3498,7 +4203,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                     </div>
                     {/* Lock Indicator */}
                     {image.lockInfo?.isLocked && (
-                      <div className={`absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold ${
+                      <div className={`absolute top-2 left-10 flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold ${
                         image.lockInfo.isCurrentUser 
                           ? 'bg-green-500/90 text-white' 
                           : 'bg-red-500/90 text-white'

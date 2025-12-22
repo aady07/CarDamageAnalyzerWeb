@@ -14,7 +14,7 @@ import { checkClientAccess } from '../services/api/clientService';
 import { checkDashboardAccess } from '../services/api/manualInspectionService';
 import logo from '../assets/images/logo.svg';
 
-export type ScreenType = 'landing' | 'rules' | 'camera' | 'dashboard' | 'admin' | 'clientDashboard' | 'refuxDashboard' | 'manualInspection';
+export type ScreenType = 'landing' | 'rules' | 'camera' | 'dashboard' | 'admin' | 'clientDashboard' | 'refuxDashboard' | 'ecoMobilityDashboard' | 'manualInspection';
 
 interface AppContentProps {
   isAuthed: boolean | null;
@@ -29,6 +29,7 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [hasClientAccess, setHasClientAccess] = useState<boolean | null>(null);
   const [hasRefuxAccess, setHasRefuxAccess] = useState<boolean | null>(null);
+  const [hasEcoMobilityAccess, setHasEcoMobilityAccess] = useState<boolean | null>(null);
   const [hasInspectionDashboardAccess, setHasInspectionDashboardAccess] = useState<boolean | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const { isAuthenticated } = useCognitoAuth();
@@ -87,6 +88,15 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
           setHasRefuxAccess(false);
         });
       
+      // Check Eco Mobility access
+      checkClientAccess('ECOMOBILITY')
+        .then(response => {
+          setHasEcoMobilityAccess(response.hasAccess);
+        })
+        .catch(error => {
+          setHasEcoMobilityAccess(false);
+        });
+      
       // Check inspection dashboard access
       checkDashboardAccess()
         .then(response => {
@@ -98,13 +108,14 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
     } else {
       setHasClientAccess(null);
       setHasRefuxAccess(null);
+      setHasEcoMobilityAccess(null);
       setHasInspectionDashboardAccess(null);
     }
   }, [isAuthed]);
 
   const navigateTo = async (screen: ScreenType) => {
-    // Protect camera, dashboard, admin, clientDashboard, refuxDashboard, and manualInspection screens with auth
-    if (screen === 'camera' || screen === 'dashboard' || screen === 'admin' || screen === 'clientDashboard' || screen === 'refuxDashboard' || screen === 'manualInspection') {
+    // Protect camera, dashboard, admin, clientDashboard, refuxDashboard, ecoMobilityDashboard, and manualInspection screens with auth
+    if (screen === 'camera' || screen === 'dashboard' || screen === 'admin' || screen === 'clientDashboard' || screen === 'refuxDashboard' || screen === 'ecoMobilityDashboard' || screen === 'manualInspection') {
       const ok = await isAuthenticated();
       if (!ok) {
         // Handle auth requirement - this should be handled by the parent App component
@@ -124,6 +135,11 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
 
     // Protect refuxDashboard screen with REFUX access check
     if (screen === 'refuxDashboard' && hasRefuxAccess !== true) {
+      return;
+    }
+
+    // Protect ecoMobilityDashboard screen with Eco Mobility access check
+    if (screen === 'ecoMobilityDashboard' && hasEcoMobilityAccess !== true) {
       return;
     }
 
@@ -213,6 +229,22 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                         </svg>
                         REFEX Dashboard
+                        </motion.button>
+                    )}
+                    {hasEcoMobilityAccess === true && currentScreen !== 'ecoMobilityDashboard' && (
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => {
+                          navigateTo('ecoMobilityDashboard');
+                          setIsDropdownOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-3 text-white hover:bg-white/10 transition-colors duration-200 flex items-center gap-3"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        ECO MOBILITY Dashboard
                         </motion.button>
                     )}
                     {hasInspectionDashboardAccess === true && (
@@ -381,6 +413,18 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
             transition={{ duration: 0.5 }}
           >
             <ClientDashboard onBack={() => navigateTo('landing')} clientName="REFUX" />
+          </motion.div>
+        )}
+
+        {currentScreen === 'ecoMobilityDashboard' && (
+          <motion.div
+            key="ecoMobilityDashboard"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <ClientDashboard onBack={() => navigateTo('landing')} clientName="ECOMOBILITY" />
           </motion.div>
         )}
 
