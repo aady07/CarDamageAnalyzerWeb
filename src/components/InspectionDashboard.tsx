@@ -145,6 +145,26 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
       const data = await getDashboardData(inspectionId);
       setDashboardData(data);
 
+      // Log backend data for previous day and incremental images
+      console.log('[InspectionDashboard] Dashboard data received from backend:', {
+        inspectionId,
+        totalImages: data.images.length,
+        imageDetails: data.images.map(image => ({
+          id: image.id,
+          imageType: image.imageType,
+          previousImageStreamUrl: image.images?.previousImageStreamUrl || null,
+          incrementImageStreamUrl: image.images?.incrementImageStreamUrl || null,
+          incrementComment: image.comments?.increment || null,
+          hasPreviousImage: !!image.images?.previousImageStreamUrl,
+          hasIncrementImage: !!image.images?.incrementImageStreamUrl,
+          hasIncrementComment: !!image.comments?.increment,
+          comments: {
+            ai1: image.comments?.ai1 || null,
+            increment: image.comments?.increment || null
+          }
+        }))
+      });
+
       // Load all images as blobs and create object URLs
       const urlMap = new Map<string, string>();
       const imagePromises: Promise<void>[] = [];
@@ -165,15 +185,33 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
 
         // Previous image
         if (image.images.previousImageStreamUrl) {
+          console.log(`[InspectionDashboard] Fetching previous day image for image ${image.id} (${image.imageType}):`, {
+            imageId: image.id,
+            imageType: image.imageType,
+            previousImageStreamUrl: image.images.previousImageStreamUrl,
+            incrementComment: image.comments?.increment || 'No increment comment'
+          });
           imagePromises.push(
             fetchImageBlob(image.images.previousImageStreamUrl)
               .then(blob => {
                 if (blob) {
+                  console.log(`[InspectionDashboard] Successfully loaded previous day image blob for image ${image.id}:`, {
+                    imageId: image.id,
+                    imageType: image.imageType,
+                    blobSize: blob.size,
+                    blobType: blob.type
+                  });
                   urlMap.set(`previous-${image.id}`, URL.createObjectURL(blob));
+                } else {
+                  console.warn(`[InspectionDashboard] Failed to fetch previous day image blob for image ${image.id}: blob is null`);
                 }
               })
-              .catch(() => {})
+              .catch((err) => {
+                console.error(`[InspectionDashboard] Error fetching previous day image for image ${image.id}:`, err);
+              })
           );
+        } else {
+          console.log(`[InspectionDashboard] No previous day image URL for image ${image.id} (${image.imageType})`);
         }
 
         // AI Processed image
@@ -191,15 +229,34 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
 
         // Increment image
         if (image.images.incrementImageStreamUrl) {
+          console.log(`[InspectionDashboard] Fetching incremental image for image ${image.id} (${image.imageType}):`, {
+            imageId: image.id,
+            imageType: image.imageType,
+            incrementImageStreamUrl: image.images.incrementImageStreamUrl,
+            incrementComment: image.comments?.increment || 'No increment comment'
+          });
           imagePromises.push(
             fetchImageBlob(image.images.incrementImageStreamUrl)
               .then(blob => {
                 if (blob) {
+                  console.log(`[InspectionDashboard] Successfully loaded incremental image blob for image ${image.id}:`, {
+                    imageId: image.id,
+                    imageType: image.imageType,
+                    blobSize: blob.size,
+                    blobType: blob.type,
+                    incrementComment: image.comments?.increment || 'No increment comment'
+                  });
                   urlMap.set(`increment-${image.id}`, URL.createObjectURL(blob));
+                } else {
+                  console.warn(`[InspectionDashboard] Failed to fetch incremental image blob for image ${image.id}: blob is null`);
                 }
               })
-              .catch(() => {})
+              .catch((err) => {
+                console.error(`[InspectionDashboard] Error fetching incremental image for image ${image.id}:`, err);
+              })
           );
+        } else {
+          console.log(`[InspectionDashboard] No incremental image URL for image ${image.id} (${image.imageType}), increment comment:`, image.comments?.increment || 'None');
         }
       });
 
