@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, FileText, Download, Calendar, DollarSign, Percent, Car, Clock, CheckCircle, AlertCircle, Loader, TrendingUp, Bell } from 'lucide-react';
+import { ArrowLeft, FileText, Download, Calendar, DollarSign, Percent, Car, Clock, CheckCircle, AlertCircle, Loader, TrendingUp, Bell, LayoutDashboard } from 'lucide-react';
 import { getUserInspections, downloadInspectionPDF, checkPDFAvailability, CarInspection } from '../services/api/inspectionService';
+import InspectionDashboard from './InspectionDashboard';
 
 interface DashboardProps {
   onBack: () => void;
@@ -13,6 +14,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
   const [error, setError] = useState<string>('');
   const [downloadingPdf, setDownloadingPdf] = useState<number | null>(null);
   const [notifications, setNotifications] = useState<string[]>([]);
+  const [viewingDashboard, setViewingDashboard] = useState<number | null>(null);
   const lastUpdatedRef = useRef<Map<number, string>>(new Map());
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -239,6 +241,20 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
     return diffMinutes < 5; // Updated in last 5 minutes
   };
 
+  const isDashboardReady = (inspection: CarInspection): boolean => {
+    return inspection.approvalStatus === 'APPROVED' && inspection.pdfReady === true;
+  };
+
+  // If viewing a dashboard, show the InspectionDashboard component
+  if (viewingDashboard !== null) {
+    return (
+      <InspectionDashboard
+        inspectionId={viewingDashboard}
+        onBack={() => setViewingDashboard(null)}
+      />
+    );
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
@@ -429,29 +445,46 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
 
                   </div>
 
-                  {/* PDF Download Button */}
+                  {/* Action Buttons */}
                   {inspection.status === 'completed' && (
-                    <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => handleDownloadPDF(inspection)}
-                      disabled={downloadingPdf === inspection.id}
-                      className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:from-gray-500 disabled:to-gray-600 text-white font-bold py-2 md:py-3 px-4 md:px-6 rounded-lg md:rounded-xl flex items-center justify-center gap-2 md:gap-3 transition-all duration-200 text-sm md:text-base"
-                    >
-                      {downloadingPdf === inspection.id ? (
-                        <>
-                          <Loader className="w-4 h-4 md:w-5 md:h-5 animate-spin" />
-                          <span className="hidden md:inline">Checking PDF...</span>
-                          <span className="md:hidden">Checking...</span>
-                        </>
-                      ) : (
-                        <>
-                          <FileText className="w-4 h-4 md:w-5 md:h-5" />
-                          <span className="hidden md:inline">Download PDF Report</span>
-                          <span className="md:hidden">Download PDF</span>
-                        </>
+                    <div className="space-y-3">
+                      {/* View Dashboard Button - Only show if approved and PDF ready */}
+                      {isDashboardReady(inspection) && (
+                        <motion.button
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => setViewingDashboard(inspection.id)}
+                          className="w-full bg-gradient-to-r from-purple-500 to-blue-600 hover:from-purple-600 hover:to-blue-700 text-white font-bold py-2 md:py-3 px-4 md:px-6 rounded-lg md:rounded-xl flex items-center justify-center gap-2 md:gap-3 transition-all duration-200 text-sm md:text-base"
+                        >
+                          <LayoutDashboard className="w-4 h-4 md:w-5 md:h-5" />
+                          <span className="hidden md:inline">View Inspection Dashboard</span>
+                          <span className="md:hidden">View Dashboard</span>
+                        </motion.button>
                       )}
-                    </motion.button>
+                      
+                      {/* PDF Download Button */}
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => handleDownloadPDF(inspection)}
+                        disabled={downloadingPdf === inspection.id}
+                        className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:from-gray-500 disabled:to-gray-600 text-white font-bold py-2 md:py-3 px-4 md:px-6 rounded-lg md:rounded-xl flex items-center justify-center gap-2 md:gap-3 transition-all duration-200 text-sm md:text-base"
+                      >
+                        {downloadingPdf === inspection.id ? (
+                          <>
+                            <Loader className="w-4 h-4 md:w-5 md:h-5 animate-spin" />
+                            <span className="hidden md:inline">Checking PDF...</span>
+                            <span className="md:hidden">Checking...</span>
+                          </>
+                        ) : (
+                          <>
+                            <FileText className="w-4 h-4 md:w-5 md:h-5" />
+                            <span className="hidden md:inline">Download PDF Report</span>
+                            <span className="md:hidden">Download PDF</span>
+                          </>
+                        )}
+                      </motion.button>
+                    </div>
                   )}
 
                   {/* Approval Status Messages */}

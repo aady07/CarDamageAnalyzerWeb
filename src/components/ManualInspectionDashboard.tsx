@@ -2580,17 +2580,11 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
       // Remove approved image from pending list
       setPendingImages(prev => prev.filter(img => img.id !== selectedImage.id));
       
-      // Show success message
-      if (response.inspectionProgress.isComplete) {
-        alert('All images approved! Report generation started.');
-      } else {
-        alert(`Approved! Progress: ${response.inspectionProgress.approvedCount}/10`);
-      }
-      
       // Go back to grid
       handleBackToGrid();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to approve image');
+      setError(err.response?.data?.error || 'Failed to approve image');
+      setTimeout(() => setError(''), 5000);
     } finally {
       setApproving(false);
     }
