@@ -373,6 +373,15 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
     return { isAvailable: car.pdfReady, isPending: false };
   };
 
+  // Determine if inspection is morning or evening based on createdAt time
+  // Before 4 PM = Morning, After 4 PM till 12 AM = Evening
+  const getInspectionTimeGroup = (createdAt: string): 'morning' | 'evening' => {
+    const date = new Date(createdAt);
+    const hours = date.getHours();
+    // Before 4 PM (16:00) = Morning, After 4 PM till 12 AM (00:00) = Evening
+    return hours < 16 ? 'morning' : 'evening';
+  };
+
   // Group REFUX inspections by car number and sort by createdAt
   const groupRefuxInspectionsByCar = (cars: DashboardCar[]): Map<string, DashboardCar[]> => {
     const grouped = new Map<string, DashboardCar[]>();
@@ -393,6 +402,54 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
     });
     
     return grouped;
+  };
+
+  // Calculate REFUX morning/evening done counts based on time grouping
+  const calculateRefuxSummary = (cars: DashboardCar[]) => {
+    if (!cars || cars.length === 0) {
+      return { morningDone: 0, eveningDone: 0 };
+    }
+
+    const morningCars = new Set<string>();
+    const eveningCars = new Set<string>();
+
+    cars.forEach((car) => {
+      const timeGroup = getInspectionTimeGroup(car.createdAt);
+      // Count all inspections based on time, regardless of pdfReady status
+      if (timeGroup === 'morning') {
+        morningCars.add(car.carNumber);
+      } else {
+        eveningCars.add(car.carNumber);
+      }
+    });
+
+    return {
+      morningDone: morningCars.size,
+      eveningDone: eveningCars.size
+    };
+  };
+
+  // Sort REFUX cars: ready ones (latest first) at top, processing at bottom
+  const sortRefuxCars = (cars: DashboardCar[]): DashboardCar[] => {
+    const ready = cars.filter(car => car.pdfReady);
+    const processing = cars.filter(car => !car.pdfReady);
+
+    // Sort ready ones by lastUpdatedAt (latest first)
+    ready.sort((a, b) => {
+      const dateA = new Date(a.lastUpdatedAt || a.createdAt).getTime();
+      const dateB = new Date(b.lastUpdatedAt || b.createdAt).getTime();
+      return dateB - dateA; // Descending (latest first)
+    });
+
+    // Sort processing ones by createdAt (latest first)
+    processing.sort((a, b) => {
+      const dateA = new Date(a.createdAt).getTime();
+      const dateB = new Date(b.createdAt).getTime();
+      return dateB - dateA; // Descending (latest first)
+    });
+
+    // Return ready first, then processing
+    return [...ready, ...processing];
   };
 
   const getSessionBadge = (session: { status: 'done' | 'pending'; imageCount: number }, sessionName: string) => {
@@ -662,7 +719,11 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                     <CheckCircle className="w-6 h-6 md:w-8 md:h-8 text-green-400" />
                   </div>
                   <h3 className="text-gray-400 text-xs md:text-sm mb-1 md:mb-2">Morning Done</h3>
-                  <p className="text-white font-bold text-xl md:text-3xl">{dashboardData.summary.morningDone}</p>
+                  <p className="text-white font-bold text-xl md:text-3xl">
+                    {clientName === 'REFUX' && dashboardData.cars
+                      ? calculateRefuxSummary(dashboardData.cars).morningDone
+                      : dashboardData.summary.morningDone}
+                  </p>
                 </motion.div>
 
                 <motion.div
@@ -675,7 +736,11 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                     <CheckCircle className="w-6 h-6 md:w-8 md:h-8 text-green-400" />
                   </div>
                   <h3 className="text-gray-400 text-xs md:text-sm mb-1 md:mb-2">Evening Done</h3>
-                  <p className="text-white font-bold text-xl md:text-3xl">{dashboardData.summary.eveningDone}</p>
+                  <p className="text-white font-bold text-xl md:text-3xl">
+                    {clientName === 'REFUX' && dashboardData.cars
+                      ? calculateRefuxSummary(dashboardData.cars).eveningDone
+                      : dashboardData.summary.eveningDone}
+                  </p>
                 </motion.div>
 
                 {clientName === 'SNAPCABS' && (
@@ -762,7 +827,9 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                       {(() => {
                         // For REFUX, group by carNumber and show one row per car
                         if (clientName === 'REFUX' && dashboardData.cars) {
-                          const groupedCars = groupRefuxInspectionsByCar(dashboardData.cars);
+                          // Sort REFUX cars: ready ones (latest first) at top, processing at bottom
+                          const sortedCars = sortRefuxCars(dashboardData.cars);
+                          const groupedCars = groupRefuxInspectionsByCar(sortedCars);
                           const rows: JSX.Element[] = [];
                           let rowIndex = 0;
                           
@@ -807,42 +874,54 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                                 </td>
                                 <td className="hidden sm:table-cell px-2 md:px-4 py-4 md:px-6 md:py-5 align-top">
                                   <div className="flex flex-col gap-2 md:gap-3">
-                                    {/* 1st Inspection Status */}
+                                    {/* 1st Inspection Status - Based on time, not order */}
                                     <div className="flex flex-col gap-0.5 md:gap-1">
-                                      <div className={`inline-flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium border ${
-                                        firstInspection.pdfReady 
-                                          ? 'bg-green-500/10 border-green-500/30 text-green-400' 
-                                          : firstInspection.status === 'processing'
-                                          ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
-                                          : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
-                                      }`}>
-                                        {firstInspection.pdfReady ? (
-                                          <CheckCircle className="w-3 h-3 md:w-3.5 md:h-3.5" />
-                                        ) : (
-                                          <Clock className="w-3 h-3 md:w-3.5 md:h-3.5" />
-                                        )}
-                                        <span className="hidden sm:inline">MORNING</span>
-                                        <span className="sm:hidden">M</span>
-                                      </div>
+                                      {(() => {
+                                        const firstTimeGroup = getInspectionTimeGroup(firstInspection.createdAt);
+                                        const firstLabel = firstTimeGroup === 'morning' ? 'MORNING' : 'EVENING';
+                                        return (
+                                          <div className={`inline-flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium border ${
+                                            firstInspection.pdfReady 
+                                              ? 'bg-green-500/10 border-green-500/30 text-green-400' 
+                                              : firstInspection.status === 'processing'
+                                              ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                                              : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                                          }`}>
+                                            {firstInspection.pdfReady ? (
+                                              <CheckCircle className="w-3 h-3 md:w-3.5 md:h-3.5" />
+                                            ) : (
+                                              <Clock className="w-3 h-3 md:w-3.5 md:h-3.5" />
+                                            )}
+                                            <span className="hidden sm:inline">{firstLabel}</span>
+                                            <span className="sm:hidden">{firstLabel.charAt(0)}</span>
+                                          </div>
+                                        );
+                                      })()}
                                     </div>
-                                    {/* 2nd Inspection Status (if exists) */}
+                                    {/* 2nd Inspection Status (if exists) - Based on time, not order */}
                                     {secondInspection && (
                                       <div className="flex flex-col gap-0.5 md:gap-1">
-                                        <div className={`inline-flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium border ${
-                                          secondInspection.pdfReady 
-                                            ? 'bg-green-500/10 border-green-500/30 text-green-400' 
-                                            : secondInspection.status === 'processing'
-                                            ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
-                                            : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
-                                        }`}>
-                                          {secondInspection.pdfReady ? (
-                                            <CheckCircle className="w-3 h-3 md:w-3.5 md:h-3.5" />
-                                          ) : (
-                                            <Clock className="w-3 h-3 md:w-3.5 md:h-3.5" />
-                                          )}
-                                          <span className="hidden sm:inline">EVENING</span>
-                                          <span className="sm:hidden">E</span>
-                                        </div>
+                                        {(() => {
+                                          const secondTimeGroup = getInspectionTimeGroup(secondInspection.createdAt);
+                                          const secondLabel = secondTimeGroup === 'morning' ? 'MORNING' : 'EVENING';
+                                          return (
+                                            <div className={`inline-flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium border ${
+                                              secondInspection.pdfReady 
+                                                ? 'bg-green-500/10 border-green-500/30 text-green-400' 
+                                                : secondInspection.status === 'processing'
+                                                ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                                                : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                                            }`}>
+                                              {secondInspection.pdfReady ? (
+                                                <CheckCircle className="w-3 h-3 md:w-3.5 md:h-3.5" />
+                                              ) : (
+                                                <Clock className="w-3 h-3 md:w-3.5 md:h-3.5" />
+                                              )}
+                                              <span className="hidden sm:inline">{secondLabel}</span>
+                                              <span className="sm:hidden">{secondLabel.charAt(0)}</span>
+                                            </div>
+                                          );
+                                        })()}
                                       </div>
                                     )}
                                   </div>
