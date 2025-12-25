@@ -339,8 +339,15 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
     
     // Extract floor dirt, tissue, and bottle from last 4 parts processed comments
     const hasFloorDirt = isLast4Parts && processedComment.toLowerCase().includes('floor dirt');
-    const hasTissue = isLast4Parts && processedComment.toLowerCase().includes('tissue');
-    const hasBottle = isLast4Parts && processedComment.toLowerCase().includes('bottle');
+    // Check for tissue missing - only count when comment says "tissue: no" or "tissue no"
+    const processedCommentLower = processedComment.toLowerCase();
+    const hasTissueMissing = isLast4Parts && 
+      (processedCommentLower.includes('tissue: no') || 
+       processedCommentLower.match(/\btissue\s+no\b/i));
+    // Check for bottle missing - only count when comment says "bottle: no" or "bottle no"
+    const hasBottleMissing = isLast4Parts && 
+      (processedCommentLower.includes('bottle: no') || 
+       processedCommentLower.match(/\bbottle\s+no\b/i));
     
     // Parse damage type from damageDetection
     const damageLower = parsed.damageDetection.toLowerCase();
@@ -366,8 +373,8 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
       hasNoLogo,
       hasIncrement: !!image.comments.increment,
       hasFloorDirt,
-      hasTissue,
-      hasBottle,
+      hasTissueMissing,
+      hasBottleMissing,
       isLast4Parts
     };
   });
@@ -379,8 +386,8 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
   const partsWithoutLogoCount = parsedImages.filter(item => item.hasNoLogo).length;
   const incrementCount = parsedImages.filter(item => item.hasIncrement).length;
   const floorDirtCount = parsedImages.filter(item => item.hasFloorDirt).length;
-  const tissueCount = parsedImages.filter(item => item.hasTissue).length;
-  const bottleCount = parsedImages.filter(item => item.hasBottle).length;
+  const tissueMissingCount = parsedImages.filter(item => item.hasTissueMissing).length;
+  const bottleMissingCount = parsedImages.filter(item => item.hasBottleMissing).length;
   
   // Get parts without logo for navigation
   const partsWithoutLogo = parsedImages.filter(item => item.hasNoLogo);
@@ -388,6 +395,9 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
   const partsWithDent = parsedImages.filter(item => item.hasDent);
   const partsWithScratch = parsedImages.filter(item => item.hasScratch);
   const partsWithGeneralDamage = parsedImages.filter(item => item.hasGeneralDamage);
+  // Get parts with tissue missing and bottle missing for direct scroll
+  const partsWithTissueMissing = parsedImages.filter(item => item.hasTissueMissing);
+  const partsWithBottleMissing = parsedImages.filter(item => item.hasBottleMissing);
 
 
   // Scroll to part function
@@ -534,15 +544,15 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
                   )}
                 </div>
                 
-                {/* Tissue */}
+                {/* Tissue Missing */}
                 <div className="bg-white/5 rounded-lg sm:rounded-xl p-3 sm:p-4">
-                  <p className="text-gray-400 text-xs sm:text-sm mb-2">Tissue</p>
-                  <p className="text-cyan-400 font-bold text-2xl sm:text-3xl">{tissueCount}</p>
-                  {tissueCount > 0 && (
+                  <p className="text-gray-400 text-xs sm:text-sm mb-2">Tissue Missing</p>
+                  <p className="text-cyan-400 font-bold text-2xl sm:text-3xl">{tissueMissingCount}</p>
+                  {tissueMissingCount > 0 && partsWithTissueMissing.length > 0 && (
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
-                      onClick={() => toggleNavigation('tissue')}
+                      onClick={() => scrollToPart(partsWithTissueMissing[0].image.id)}
                       className="mt-2 text-cyan-400 text-xs sm:text-sm font-semibold hover:underline cursor-pointer active:opacity-70 py-1"
                     >
                       Click to view →
@@ -550,15 +560,15 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
                   )}
                 </div>
                 
-                {/* Bottle */}
+                {/* Bottle Missing */}
                 <div className="bg-white/5 rounded-lg sm:rounded-xl p-3 sm:p-4">
-                  <p className="text-gray-400 text-xs sm:text-sm mb-2">Bottle</p>
-                  <p className="text-purple-400 font-bold text-2xl sm:text-3xl">{bottleCount}</p>
-                  {bottleCount > 0 && (
+                  <p className="text-gray-400 text-xs sm:text-sm mb-2">Bottle Missing</p>
+                  <p className="text-purple-400 font-bold text-2xl sm:text-3xl">{bottleMissingCount}</p>
+                  {bottleMissingCount > 0 && partsWithBottleMissing.length > 0 && (
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
-                      onClick={() => toggleNavigation('bottle')}
+                      onClick={() => scrollToPart(partsWithBottleMissing[0].image.id)}
                       className="mt-2 text-purple-400 text-xs sm:text-sm font-semibold hover:underline cursor-pointer active:opacity-70 py-1"
                     >
                       Click to view →
@@ -670,67 +680,6 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
             </AnimatePresence>
           )}
 
-          {/* Tissue Navigation - Hidden by default, shown when clicked */}
-          {showNavigation.tissue && tissueCount > 0 && (
-            <AnimatePresence>
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="mt-4 overflow-hidden"
-              >
-                <h3 className="text-base sm:text-lg font-bold text-white mb-3">Click to view parts with tissue:</h3>
-                <div className="flex flex-wrap gap-2 sm:gap-3">
-                  {parsedImages.filter(item => item.hasTissue).map((item) => {
-                    const partName = item.image.imageType.replace(/_/g, ' ').toUpperCase();
-                    return (
-                      <motion.button
-                        key={item.image.id}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => scrollToPart(item.image.id)}
-                        className="bg-cyan-500/20 active:bg-cyan-500/30 border border-cyan-500/50 text-cyan-400 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg font-semibold text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 cursor-pointer touch-manipulation min-h-[44px]"
-                      >
-                        <span className="truncate max-w-[120px] sm:max-w-none">{partName}</span>
-                        <span className="bg-cyan-500/30 px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-xs flex-shrink-0">TISSUE</span>
-                      </motion.button>
-                    );
-                  })}
-                </div>
-              </motion.div>
-            </AnimatePresence>
-          )}
-
-          {/* Bottle Navigation - Hidden by default, shown when clicked */}
-          {showNavigation.bottle && bottleCount > 0 && (
-            <AnimatePresence>
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="mt-4 overflow-hidden"
-              >
-                <h3 className="text-base sm:text-lg font-bold text-white mb-3">Click to view parts with bottle:</h3>
-                <div className="flex flex-wrap gap-2 sm:gap-3">
-                  {parsedImages.filter(item => item.hasBottle).map((item) => {
-                    const partName = item.image.imageType.replace(/_/g, ' ').toUpperCase();
-                    return (
-                      <motion.button
-                        key={item.image.id}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => scrollToPart(item.image.id)}
-                        className="bg-purple-500/20 active:bg-purple-500/30 border border-purple-500/50 text-purple-400 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg font-semibold text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 cursor-pointer touch-manipulation min-h-[44px]"
-                      >
-                        <span className="truncate max-w-[120px] sm:max-w-none">{partName}</span>
-                        <span className="bg-purple-500/30 px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-xs flex-shrink-0">BOTTLE</span>
-                      </motion.button>
-                    );
-                  })}
-                </div>
-              </motion.div>
-            </AnimatePresence>
-          )}
 
           {/* New Damages Navigation - Hidden by default, shown when clicked */}
           {showNavigation.increment && incrementCount > 0 && (
