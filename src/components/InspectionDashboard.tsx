@@ -86,6 +86,20 @@ const parseAIComment = (comment: string | undefined): { damageDetection: string;
   return result;
 };
 
+// Format date to show only date (no time)
+const formatDateOnly = (dateString: string): string => {
+  try {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-GB', { 
+      day: '2-digit', 
+      month: '2-digit', 
+      year: 'numeric' 
+    });
+  } catch (e) {
+    return dateString;
+  }
+};
+
 const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId, onBack }) => {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -469,6 +483,13 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
               </div>
               <p className="text-white font-bold text-base sm:text-lg">Refex Mobility</p>
             </div>
+            <div className="bg-white/5 rounded-lg sm:rounded-xl p-3 sm:p-4">
+              <div className="flex items-center gap-2 sm:gap-3 mb-2">
+                <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-green-400 flex-shrink-0" />
+                <p className="text-gray-400 text-xs sm:text-sm">Date</p>
+              </div>
+              <p className="text-white font-bold text-base sm:text-lg">{formatDateOnly(inspection.createdAt)}</p>
+            </div>
           </div>
         </motion.div>
 
@@ -743,7 +764,18 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
                   {isFirst10Parts && (
                     <div className="flex flex-wrap gap-2 sm:gap-3 mb-3 sm:mb-4">
                       {/* Major Dent/Damage */}
-                      <div className="bg-red-500/20 border border-red-500/50 text-red-400 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm break-words">
+                      <div className={`${
+                        (() => {
+                          const damageLower = parsedComment.damageDetection.toLowerCase();
+                          const isNoDamage = damageLower === 'no damage' || damageLower === 'na' || damageLower.trim() === '';
+                          const isDentOrScratch = item.hasDent || item.hasScratch;
+                          // Blue for: no damage, dent, or scratch
+                          // Red for: general damage (has damage but not dent/scratch)
+                          return isNoDamage || isDentOrScratch
+                            ? 'bg-blue-500/20 border-blue-500/50 text-blue-400'
+                            : 'bg-red-500/20 border-red-500/50 text-red-400';
+                        })()
+                      } border px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm break-words`}>
                         Major Dent/Damage: {parsedComment.damageDetection}
                       </div>
                       {/* Logo */}
@@ -770,7 +802,7 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
                   {/* 1. Original Image */}
                   {originalImageUrl && (
                     <div className="bg-white/5 rounded-lg sm:rounded-xl p-3 sm:p-4">
-                      <h3 className="text-white font-semibold mb-2 sm:mb-3 text-xs sm:text-sm">Original Image</h3>
+                      <h3 className="text-white font-semibold mb-2 sm:mb-3 text-xs sm:text-sm">Today's original Image</h3>
                       <div className="relative rounded-lg overflow-hidden bg-black/20 cursor-pointer group active:opacity-90" style={{ minHeight: '200px' }}>
                         <img
                           src={originalImageUrl}
@@ -793,10 +825,10 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
                     </div>
                   )}
 
-                  {/* 2.  Image */}
+                  {/* 2. Previous Image */}
                   {previousImageUrl && (
                     <div className="bg-white/5 rounded-lg sm:rounded-xl p-3 sm:p-4">
-                      <h3 className="text-white font-semibold mb-2 sm:mb-3 text-xs sm:text-sm"> Image</h3>
+                      <h3 className="text-white font-semibold mb-2 sm:mb-3 text-xs sm:text-sm">Original Previous Inspection Image</h3>
                       <div className="relative rounded-lg overflow-hidden bg-black/20 cursor-pointer group active:opacity-90" style={{ minHeight: '200px' }}>
                         <img
                           src={previousImageUrl}
