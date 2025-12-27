@@ -881,20 +881,20 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                                         const firstLabel = firstTimeGroup === 'morning' ? 'MORNING' : 'EVENING';
                                         return (
                                           <div className={`inline-flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium border ${
-                                            firstInspection.pdfReady 
-                                              ? 'bg-green-500/10 border-green-500/30 text-green-400' 
-                                              : firstInspection.status === 'processing'
-                                              ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
-                                              : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
-                                          }`}>
-                                            {firstInspection.pdfReady ? (
+                                        firstInspection.pdfReady 
+                                          ? 'bg-green-500/10 border-green-500/30 text-green-400' 
+                                          : firstInspection.status === 'processing'
+                                          ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                                          : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                                      }`}>
+                                        {firstInspection.pdfReady ? (
                                               <CheckCircle className="w-3 h-3 md:w-3.5 md:h-3.5" />
-                                            ) : (
+                                        ) : (
                                               <Clock className="w-3 h-3 md:w-3.5 md:h-3.5" />
-                                            )}
+                                        )}
                                             <span className="hidden sm:inline">{firstLabel}</span>
                                             <span className="sm:hidden">{firstLabel.charAt(0)}</span>
-                                          </div>
+                                      </div>
                                         );
                                       })()}
                                     </div>
@@ -906,20 +906,20 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                                           const secondLabel = secondTimeGroup === 'morning' ? 'MORNING' : 'EVENING';
                                           return (
                                             <div className={`inline-flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium border ${
-                                              secondInspection.pdfReady 
-                                                ? 'bg-green-500/10 border-green-500/30 text-green-400' 
-                                                : secondInspection.status === 'processing'
-                                                ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
-                                                : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
-                                            }`}>
-                                              {secondInspection.pdfReady ? (
+                                          secondInspection.pdfReady 
+                                            ? 'bg-green-500/10 border-green-500/30 text-green-400' 
+                                            : secondInspection.status === 'processing'
+                                            ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                                            : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                                        }`}>
+                                          {secondInspection.pdfReady ? (
                                                 <CheckCircle className="w-3 h-3 md:w-3.5 md:h-3.5" />
-                                              ) : (
+                                          ) : (
                                                 <Clock className="w-3 h-3 md:w-3.5 md:h-3.5" />
-                                              )}
+                                          )}
                                               <span className="hidden sm:inline">{secondLabel}</span>
                                               <span className="sm:hidden">{secondLabel.charAt(0)}</span>
-                                            </div>
+                                        </div>
                                           );
                                         })()}
                                       </div>
@@ -944,27 +944,27 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                                   <div className="flex flex-col gap-1.5 md:gap-2 min-w-[100px] md:min-w-[140px]">
                                     {/* 1st Inspection Actions */}
                                     {firstInspection.pdfReady && (
-                                      <motion.button
-                                        whileHover={{ scale: 1.05 }}
-                                        whileTap={{ scale: 0.95 }}
+                                          <motion.button
+                                            whileHover={{ scale: 1.05 }}
+                                            whileTap={{ scale: 0.95 }}
                                         onClick={() => setViewingDashboard(firstInspection.inspectionId)}
                                         className="bg-purple-500 hover:bg-purple-600 text-white font-bold py-2 md:py-1 px-2 md:px-2 rounded-lg text-xs flex items-center justify-center gap-1 md:gap-1.5 w-full min-h-[36px] md:min-h-0 touch-manipulation"
                                       >
                                         <LayoutDashboard className="w-3.5 h-3.5 md:w-3 md:h-3" />
                                         <span className="text-xs md:text-xs">Dashboard</span>
-                                      </motion.button>
-                                    )}
+                                          </motion.button>
+                                        )}
                                     {/* 2nd Inspection Actions (if exists) */}
                                     {secondInspection && secondInspection.pdfReady && (
-                                      <motion.button
-                                        whileHover={{ scale: 1.05 }}
-                                        whileTap={{ scale: 0.95 }}
+                                          <motion.button
+                                            whileHover={{ scale: 1.05 }}
+                                            whileTap={{ scale: 0.95 }}
                                         onClick={() => setViewingDashboard(secondInspection.inspectionId)}
                                         className="bg-purple-500 hover:bg-purple-600 text-white font-bold py-2 md:py-1 px-2 md:px-2 rounded-lg text-xs flex items-center justify-center gap-1 md:gap-1.5 w-full min-h-[36px] md:min-h-0 touch-manipulation"
                                       >
                                         <LayoutDashboard className="w-3.5 h-3.5 md:w-3 md:h-3" />
                                         <span className="text-xs md:text-xs">Dashboard</span>
-                                      </motion.button>
+                                          </motion.button>
                                     )}
                                     {!firstInspection.pdfReady && (!secondInspection || !secondInspection.pdfReady) && (
                                       <span className="text-gray-400 text-[10px] md:text-xs text-center">No Dashboard</span>
@@ -1024,47 +1024,47 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                               
                               // For SNAPCABS: Show PDF download button (default behavior)
                               if (clientName === 'SNAPCABS') {
-                                return (
-                                  <div className="flex flex-col gap-2">
-                                    <div className="flex items-center gap-2">
-                                      <div className={`w-2 h-2 rounded-full ${
+                              return (
+                                <div className="flex flex-col gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <div className={`w-2 h-2 rounded-full ${
+                                      isAvailable 
+                                        ? 'bg-green-400' 
+                                        : isPending 
+                                        ? 'bg-yellow-400' 
+                                        : 'bg-gray-400'
+                                    }`}></div>
+                                    <span className="text-gray-400 text-xs">
+                                      PDF {
                                         isAvailable 
-                                          ? 'bg-green-400' 
+                                          ? 'Ready' 
                                           : isPending 
-                                          ? 'bg-yellow-400' 
-                                          : 'bg-gray-400'
-                                      }`}></div>
-                                      <span className="text-gray-400 text-xs">
-                                        PDF {
-                                          isAvailable 
-                                            ? 'Ready' 
-                                            : isPending 
-                                            ? 'Pending Approval' 
-                                            : 'Not Ready'
-                                        }
-                                      </span>
-                                    </div>
-                                    {isAvailable && (
-                                      <motion.button
-                                        whileHover={{ scale: 1.05 }}
-                                        whileTap={{ scale: 0.95 }}
-                                        onClick={() => handleDownloadPDF(car)}
-                                        disabled={downloadingPdf === car.carNumber}
+                                          ? 'Pending Approval' 
+                                          : 'Not Ready'
+                                      }
+                                    </span>
+                                  </div>
+                                  {isAvailable && (
+                                    <motion.button
+                                      whileHover={{ scale: 1.05 }}
+                                      whileTap={{ scale: 0.95 }}
+                                      onClick={() => handleDownloadPDF(car)}
+                                      disabled={downloadingPdf === car.carNumber}
                                         className="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-500 text-white font-bold py-1 md:py-2 px-3 md:px-4 rounded-lg text-xs md:text-sm flex items-center gap-2 w-full justify-center"
-                                      >
-                                        {downloadingPdf === car.carNumber ? (
-                                          <>
-                                            <Loader className="w-3 h-3 md:w-4 md:h-4 animate-spin" />
+                                    >
+                                      {downloadingPdf === car.carNumber ? (
+                                        <>
+                                          <Loader className="w-3 h-3 md:w-4 md:h-4 animate-spin" />
                                             <span className="hidden md:inline">Downloading...</span>
                                             <span className="md:hidden">Loading...</span>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <Download className="w-3 h-3 md:w-4 md:h-4" />
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Download className="w-3 h-3 md:w-4 md:h-4" />
                                             <span className="hidden md:inline">Download PDF</span>
                                             <span className="md:hidden">PDF</span>
-                                          </>
-                                        )}
+                                        </>
+                                      )}
                                       </motion.button>
                                     )}
                                   </div>

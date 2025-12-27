@@ -56,6 +56,8 @@ export interface InspectionImage {
   imageComments?: ImageComments; // Comments for each image type
   // Lock information
   lockInfo?: LockInfo;
+  // Previous day image fields
+  previousAiImageComment?: string; // AI comment for the previous day's image
 }
 
 export interface PaginationInfo {

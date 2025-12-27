@@ -793,24 +793,24 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
                     </div>
                   )}
 
-                  {/* 2. Previous Day Image */}
+                  {/* 2.  Image */}
                   {previousImageUrl && (
                     <div className="bg-white/5 rounded-lg sm:rounded-xl p-3 sm:p-4">
-                      <h3 className="text-white font-semibold mb-2 sm:mb-3 text-xs sm:text-sm">Previous Day Image</h3>
+                      <h3 className="text-white font-semibold mb-2 sm:mb-3 text-xs sm:text-sm"> Image</h3>
                       <div className="relative rounded-lg overflow-hidden bg-black/20 cursor-pointer group active:opacity-90" style={{ minHeight: '200px' }}>
                         <img
                           src={previousImageUrl}
                           alt="Previous"
                           className="w-full h-full object-contain touch-manipulation"
                           style={{ minHeight: '200px' }}
-                          onClick={() => setSelectedImage({ url: previousImageUrl, alt: `Previous Day - ${partName}` })}
+                          onClick={() => setSelectedImage({ url: previousImageUrl, alt: ` - ${partName}` })}
                           onError={(e) => {
                             const target = e.target as HTMLImageElement;
                             target.style.display = 'none';
                           }}
                         />
                         <button
-                          onClick={() => setSelectedImage({ url: previousImageUrl, alt: `Previous Day - ${partName}` })}
+                          onClick={() => setSelectedImage({ url: previousImageUrl, alt: ` - ${partName}` })}
                           className="absolute top-2 right-2 w-9 h-9 sm:w-8 sm:h-8 bg-black/50 active:bg-black/70 rounded-full flex items-center justify-center text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity touch-manipulation"
                         >
                           <Maximize2 className="w-4 h-4 sm:w-4 sm:h-4" />

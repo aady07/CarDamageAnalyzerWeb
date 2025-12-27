@@ -463,27 +463,27 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
                       )}
                       
                       {/* PDF Download Button */}
-                      <motion.button
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => handleDownloadPDF(inspection)}
-                        disabled={downloadingPdf === inspection.id}
-                        className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:from-gray-500 disabled:to-gray-600 text-white font-bold py-2 md:py-3 px-4 md:px-6 rounded-lg md:rounded-xl flex items-center justify-center gap-2 md:gap-3 transition-all duration-200 text-sm md:text-base"
-                      >
-                        {downloadingPdf === inspection.id ? (
-                          <>
-                            <Loader className="w-4 h-4 md:w-5 md:h-5 animate-spin" />
-                            <span className="hidden md:inline">Checking PDF...</span>
-                            <span className="md:hidden">Checking...</span>
-                          </>
-                        ) : (
-                          <>
-                            <FileText className="w-4 h-4 md:w-5 md:h-5" />
-                            <span className="hidden md:inline">Download PDF Report</span>
-                            <span className="md:hidden">Download PDF</span>
-                          </>
-                        )}
-                      </motion.button>
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => handleDownloadPDF(inspection)}
+                      disabled={downloadingPdf === inspection.id}
+                      className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:from-gray-500 disabled:to-gray-600 text-white font-bold py-2 md:py-3 px-4 md:px-6 rounded-lg md:rounded-xl flex items-center justify-center gap-2 md:gap-3 transition-all duration-200 text-sm md:text-base"
+                    >
+                      {downloadingPdf === inspection.id ? (
+                        <>
+                          <Loader className="w-4 h-4 md:w-5 md:h-5 animate-spin" />
+                          <span className="hidden md:inline">Checking PDF...</span>
+                          <span className="md:hidden">Checking...</span>
+                        </>
+                      ) : (
+                        <>
+                          <FileText className="w-4 h-4 md:w-5 md:h-5" />
+                          <span className="hidden md:inline">Download PDF Report</span>
+                          <span className="md:hidden">Download PDF</span>
+                        </>
+                      )}
+                    </motion.button>
                     </div>
                   )}
 
