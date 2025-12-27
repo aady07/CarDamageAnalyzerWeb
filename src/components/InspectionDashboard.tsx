@@ -625,11 +625,11 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={() => scrollToPart(item.image.id)}
-                        className="bg-red-500/20 active:bg-red-500/30 border border-red-500/50 text-red-400 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg font-semibold text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 cursor-pointer touch-manipulation min-h-[44px]"
+                        className="bg-blue-500/20 active:bg-blue-500/30 border border-blue-500/50 text-blue-400 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg font-semibold text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 cursor-pointer touch-manipulation min-h-[44px]"
                       >
                         <AlertCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
                         <span className="truncate max-w-[120px] sm:max-w-none">{partName}</span>
-                        <span className="bg-red-500/30 px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-xs flex-shrink-0">DENT</span>
+                        <span className="bg-blue-500/30 px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-xs flex-shrink-0">DENT</span>
                       </motion.button>
                     );
                   })}
@@ -641,11 +641,11 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={() => scrollToPart(item.image.id)}
-                        className="bg-red-500/20 active:bg-red-500/30 border border-red-500/50 text-red-400 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg font-semibold text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 cursor-pointer touch-manipulation min-h-[44px]"
+                        className="bg-blue-500/20 active:bg-blue-500/30 border border-blue-500/50 text-blue-400 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg font-semibold text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 cursor-pointer touch-manipulation min-h-[44px]"
                       >
                         <AlertCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
                         <span className="truncate max-w-[120px] sm:max-w-none">{partName}</span>
-                        <span className="bg-red-500/30 px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-xs flex-shrink-0">SCRATCH</span>
+                        <span className="bg-blue-500/30 px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-xs flex-shrink-0">SCRATCH</span>
                       </motion.button>
                     );
                   })}
@@ -828,7 +828,7 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
                   {/* 2. Previous Image */}
                   {previousImageUrl && (
                     <div className="bg-white/5 rounded-lg sm:rounded-xl p-3 sm:p-4">
-                      <h3 className="text-white font-semibold mb-2 sm:mb-3 text-xs sm:text-sm">Original Previous Inspection Image</h3>
+                      <h3 className="text-white font-semibold mb-2 sm:mb-3 text-xs sm:text-sm">Original Previous Image</h3>
                       <div className="relative rounded-lg overflow-hidden bg-black/20 cursor-pointer group active:opacity-90" style={{ minHeight: '200px' }}>
                         <img
                           src={previousImageUrl}
