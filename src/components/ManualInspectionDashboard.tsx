@@ -314,7 +314,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   const [loadingPrevious, setLoadingPrevious] = useState(false);
   const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [currentTool, setCurrentTool] = useState<DrawingTool>('none');
-  const [drawingColor, setDrawingColor] = useState('#FF0000');
+  const [drawingColor, setDrawingColor] = useState('#00FF00');
   const [lineWidth] = useState(2.5); // Fixed line width
   const [fontSize, setFontSize] = useState(16);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -340,6 +340,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   const [aiProcessedImageBlobUrls, setAiProcessedImageBlobUrls] = useState<string[]>([]);
   const [incrementImageBlobUrl, setIncrementImageBlobUrl] = useState<string | null>(null);
   const [comments, setComments] = useState<{ original?: string; ai1?: string; ai2?: string; increment?: string }>({});
+  const [hoveredImage, setHoveredImage] = useState<{ url: string; alt: string } | null>(null);
   const [savingComments, setSavingComments] = useState(false);
   const [uploadingImage, setUploadingImage] = useState<string | null>(null);
   // Dropdown values for original image comments (based on image position 1-14)
@@ -360,7 +361,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   const containerRef = useRef<HTMLDivElement>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const colors = ['#FF0000', '#00FF00']; // Only red and green
+  const colors = ['#00FF00']; // Only green
 
   // Helper function to determine which dropdowns to show based on image position (processingOrder 1-14)
   const getDropdownOptionsForImage = (processingOrder: number) => {
@@ -780,10 +781,40 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
       const previousResponse = await getPreviousDayImage(image.carNumber, image.imageType);
       if (previousResponse.found && previousResponse.image) {
         setPreviousDayImage(previousResponse.image);
-        // Fetch previous day image as blob
+        // Fetch previous day image as blob using streamUrl
         try {
-          const prevBlobUrl = await fetchImageAsBlob(previousResponse.image);
-          setPreviousImageBlobUrl(prevBlobUrl);
+          const prevImage = previousResponse.image;
+          // Use streamUrl if available, otherwise use fetchImageAsBlob
+          if (prevImage.streamUrl) {
+            const token = await cognitoService.getAccessToken();
+            if (!token) {
+              throw new Error('No authentication token available');
+            }
+            
+            let fullUrl = prevImage.streamUrl;
+            if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
+              const baseURL = import.meta.env.VITE_API_BASE_URL || '';
+              fullUrl = `${baseURL}${fullUrl.startsWith('/') ? '' : '/'}${fullUrl}`;
+            }
+            
+            const response = await fetch(fullUrl, {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            });
+            
+            if (!response.ok) {
+              throw new Error(`Failed to fetch previous image: ${response.status}`);
+            }
+            
+            const blob = await response.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            setPreviousImageBlobUrl(blobUrl);
+          } else {
+            // Fallback to fetchImageAsBlob if streamUrl not available
+            const prevBlobUrl = await fetchImageAsBlob(previousResponse.image);
+            setPreviousImageBlobUrl(prevBlobUrl);
+          }
         } catch (err) {
           console.error('Failed to load previous day image blob:', err);
         }
@@ -1745,15 +1776,17 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
 
     // Set canvas size to match display size (not image size for better control)
     const rect = canvas.getBoundingClientRect();
-    if (canvas.width !== rect.width || canvas.height !== rect.height) {
-      canvas.width = rect.width;
-      canvas.height = rect.height;
+    const displayWidth = Math.floor(rect.width);
+    const displayHeight = Math.floor(rect.height);
+    if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+      canvas.width = displayWidth;
+      canvas.height = displayHeight;
     }
 
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Calculate scaled image dimensions using natural size
+    // Calculate scaled image dimensions - fill container better for portrait images
     const imgAspect = img.naturalWidth / img.naturalHeight;
     const canvasAspect = canvas.width / canvas.height;
     let drawWidth = canvas.width;
@@ -1761,12 +1794,14 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
     let drawX = 0;
     let drawY = 0;
 
-    if (imgAspect > canvasAspect) {
-      drawHeight = canvas.width / imgAspect;
-      drawY = (canvas.height - drawHeight) / 2;
-    } else {
+    // For portrait images (height > width), fill height and center horizontally
+    if (imgAspect < canvasAspect) {
       drawWidth = canvas.height * imgAspect;
       drawX = (canvas.width - drawWidth) / 2;
+    } else {
+      // For landscape, fill width and center vertically
+      drawHeight = canvas.width / imgAspect;
+      drawY = (canvas.height - drawHeight) / 2;
     }
 
     // Calculate scale factors for converting image natural coordinates to display coordinates
@@ -2729,6 +2764,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
 
   if (viewMode === 'review' && selectedImage) {
     return (
+      <>
       <div className="min-h-screen bg-black">
         {/* Header */}
         <div className="px-4 md:px-8 pt-4 md:pt-8 pb-4">
@@ -2808,230 +2844,77 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-            {/* Left Column: Editable Canvas (60%) */}
-            <div className="lg:col-span-3 space-y-4">
-              {/* Drawing Tools */}
-              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4">
-                <h3 className="text-white font-semibold mb-3 text-sm">Drawing Tools</h3>
-                <div className="space-y-3">
-                  <div className="grid grid-cols-3 gap-2">
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setCurrentTool(currentTool === 'brush' ? 'none' : 'brush')}
-                      className={`p-2 rounded-lg flex items-center justify-center gap-2 ${
-                        currentTool === 'brush' ? 'bg-blue-500/30 border-2 border-blue-500' : 'bg-white/10 border border-white/20'
-                      } text-white`}
-                    >
-                      <Edit2 className="w-4 h-4" />
-                      <span className="text-xs">Brush</span>
-                    </motion.button>
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setCurrentTool(currentTool === 'rectangle' ? 'none' : 'rectangle')}
-                      className={`p-2 rounded-lg flex items-center justify-center gap-2 ${
-                        currentTool === 'rectangle' ? 'bg-blue-500/30 border-2 border-blue-500' : 'bg-white/10 border border-white/20'
-                      } text-white`}
-                    >
-                      <Square className="w-4 h-4" />
-                      <span className="text-xs">Rect</span>
-                    </motion.button>
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setCurrentTool(currentTool === 'circle' ? 'none' : 'circle')}
-                      className={`p-2 rounded-lg flex items-center justify-center gap-2 ${
-                        currentTool === 'circle' ? 'bg-blue-500/30 border-2 border-blue-500' : 'bg-white/10 border border-white/20'
-                      } text-white`}
-                    >
-                      <Circle className="w-4 h-4" />
-                      <span className="text-xs">Circle</span>
-                    </motion.button>
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setCurrentTool(currentTool === 'arrow' ? 'none' : 'arrow')}
-                      className={`p-2 rounded-lg flex items-center justify-center gap-2 ${
-                        currentTool === 'arrow' ? 'bg-blue-500/30 border-2 border-blue-500' : 'bg-white/10 border border-white/20'
-                      } text-white`}
-                    >
-                      <ArrowIcon className="w-4 h-4" />
-                      <span className="text-xs">Arrow</span>
-                    </motion.button>
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setCurrentTool(currentTool === 'text' ? 'none' : 'text')}
-                      className={`p-2 rounded-lg flex items-center justify-center gap-2 ${
-                        currentTool === 'text' ? 'bg-blue-500/30 border-2 border-blue-500' : 'bg-white/10 border border-white/20'
-                      } text-white`}
-                    >
-                      <Type className="w-4 h-4" />
-                      <span className="text-xs">Text</span>
-                    </motion.button>
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => {
-                        setDrawings([]);
-                        setCurrentTool('none');
-                        setSelectedDrawingId(null);
-                      }}
-                      className="p-2 rounded-lg bg-red-500/20 border border-red-500/30 text-red-400 flex items-center justify-center gap-2"
-                    >
-                      <X className="w-4 h-4" />
-                      <span className="text-xs">Clear</span>
-                    </motion.button>
-                  </div>
+            {/* Left Column: Images and Action Buttons (60%) */}
+            <div className="lg:col-span-3 space-y-3">
+              {/* Drawing Tools - Compact */}
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-2">
+                <div className="grid grid-cols-5 gap-2">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setCurrentTool(currentTool === 'brush' ? 'none' : 'brush')}
+                    className={`p-1.5 rounded-lg flex items-center justify-center gap-1 ${
+                      currentTool === 'brush' ? 'bg-blue-500/30 border-2 border-blue-500' : 'bg-white/10 border border-white/20'
+                    } text-white text-xs`}
+                  >
+                    <Edit2 className="w-3 h-3" />
+                    <span>Brush</span>
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setCurrentTool(currentTool === 'rectangle' ? 'none' : 'rectangle')}
+                    className={`p-1.5 rounded-lg flex items-center justify-center gap-1 ${
+                      currentTool === 'rectangle' ? 'bg-blue-500/30 border-2 border-blue-500' : 'bg-white/10 border border-white/20'
+                    } text-white text-xs`}
+                  >
+                    <Square className="w-3 h-3" />
+                    <span>Rect</span>
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setCurrentTool(currentTool === 'circle' ? 'none' : 'circle')}
+                    className={`p-1.5 rounded-lg flex items-center justify-center gap-1 ${
+                      currentTool === 'circle' ? 'bg-blue-500/30 border-2 border-blue-500' : 'bg-white/10 border border-white/20'
+                    } text-white text-xs`}
+                  >
+                    <Circle className="w-3 h-3" />
+                    <span>Circle</span>
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setCurrentTool(currentTool === 'arrow' ? 'none' : 'arrow')}
+                    className={`p-1.5 rounded-lg flex items-center justify-center gap-1 ${
+                      currentTool === 'arrow' ? 'bg-blue-500/30 border-2 border-blue-500' : 'bg-white/10 border border-white/20'
+                    } text-white text-xs`}
+                  >
+                    <ArrowIcon className="w-3 h-3" />
+                    <span>Arrow</span>
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      setDrawings([]);
+                      setCurrentTool('none');
+                      setSelectedDrawingId(null);
+                    }}
+                    className="p-1.5 rounded-lg bg-red-500/20 border border-red-500/30 text-red-400 flex items-center justify-center gap-1 text-xs"
+                  >
+                    <X className="w-3 h-3" />
+                    <span>Clear</span>
+                  </motion.button>
+                </div>
+              </div>
 
-
-                  {/* Font Size Control (for text) */}
-                  {currentTool === 'text' && (
-                    <div>
-                      <p className="text-gray-400 text-xs mb-2">Font Size: {fontSize}px</p>
-                      <input
-                        type="range"
-                        min="12"
-                        max="48"
-                        value={fontSize}
-                        onChange={(e) => setFontSize(Number(e.target.value))}
-                        className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer"
-                        style={{
-                          background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${((fontSize - 12) / 36) * 100}%, rgba(255,255,255,0.1) ${((fontSize - 12) / 36) * 100}%, rgba(255,255,255,0.1) 100%)`
-                        }}
-                      />
-                      <div className="flex justify-between text-gray-500 text-xs mt-1">
-                        <span>12</span>
-                        <span>48</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Color Picker */}
-                  <div>
-                    <p className="text-gray-400 text-xs mb-2">Color</p>
-                    <div className="grid grid-cols-6 gap-2">
-                      {colors.map(color => (
-                        <motion.button
-                          key={color}
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => {
-                            setDrawingColor(color);
-                            if (selectedDrawingId) {
-                              setDrawings(prev => prev.map(d => 
-                                d.id === selectedDrawingId ? { ...d, color } : d
-                              ));
-                            }
-                          }}
-                          className={`w-8 h-8 rounded border-2 ${
-                            drawingColor === color ? 'border-white' : 'border-transparent'
-                          }`}
-                          style={{ backgroundColor: color }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Action Buttons - Replace AI Images or Set Increment - Always Visible */}
-                  <div className="pt-2 border-t border-white/20 space-y-2">
-                      <p className="text-gray-400 text-xs mb-2 font-semibold">Apply Edits To:</p>
-                      <motion.button
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => handleUseDrawnImageAs('model1')}
-                        disabled={!imageLoaded || uploadingImage === 'ai-model1'}
-                        className="w-full bg-blue-500/20 border border-blue-500/30 text-blue-300 font-semibold py-2 px-3 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 text-sm hover:bg-blue-500/30"
-                      >
-                        {uploadingImage === 'ai-model1' ? (
-                          <>
-                            <Loader className="w-4 h-4 animate-spin" />
-                            Replacing...
-                          </>
-                        ) : (
-                          <>
-                            <Edit2 className="w-4 h-4" />
-                            Replace AI Image 1
-                          </>
-                        )}
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => handleUseDrawnImageAs('model2')}
-                        disabled={!imageLoaded || uploadingImage === 'ai-model2'}
-                        className="w-full bg-blue-500/20 border border-blue-500/30 text-blue-300 font-semibold py-2 px-3 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 text-sm hover:bg-blue-500/30"
-                      >
-                        {uploadingImage === 'ai-model2' ? (
-                          <>
-                            <Loader className="w-4 h-4 animate-spin" />
-                            Replacing...
-                          </>
-                        ) : (
-                          <>
-                            <Edit2 className="w-4 h-4" />
-                            Replace AI Image 2
-                          </>
-                        )}
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => handleUseDrawnImageAs('increment')}
-                        disabled={!imageLoaded || uploadingImage === 'increment'}
-                        className="w-full bg-green-500/20 border border-green-500/30 text-green-300 font-semibold py-2 px-3 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 text-sm hover:bg-green-500/30"
-                      >
-                        {uploadingImage === 'increment' ? (
-                          <>
-                            <Loader className="w-4 h-4 animate-spin" />
-                            Setting...
-                          </>
-                        ) : (
-                          <>
-                            <Upload className="w-4 h-4" />
-                            Set as Increment Image
-                          </>
-                        )}
-                      </motion.button>
-                    <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={handleDownloadDrawnImage}
-                      disabled={!imageLoaded}
-                        className="w-full bg-gray-500/20 border border-gray-500/30 text-gray-300 font-semibold py-2 px-3 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 text-sm"
-                    >
-                      <Download className="w-4 h-4" />
-                        Download Edited Image
-                    </motion.button>
-                    </div>
-
-                  {/* Selected Drawing Controls */}
-                  {selectedDrawingId && (
-                    <div className="pt-2 border-t border-white/20">
-                      <p className="text-gray-400 text-xs mb-2">Selected Drawing</p>
-                      <div className="space-y-2">
-                        <motion.button
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          onClick={() => {
-                            setDrawings(prev => prev.filter(d => d.id !== selectedDrawingId));
-                            setSelectedDrawingId(null);
-                          }}
-                          className="w-full bg-red-500/20 border border-red-500/30 text-red-400 font-semibold py-2 px-3 rounded-lg text-xs"
-                        >
-                          Delete Selected
-                        </motion.button>
-                      </div>
-                    </div>
-                  )}
-            </div>
-          </div>
-
+              {/* Edit Original Image and  Image - Side by Side */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Canvas Section - Always shows Original Image */}
-              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4">
-            <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
-              <ImageIcon className="w-5 h-5" />
+                <div className="bg-white/10 backdrop-blur-lg rounded-xl p-3">
+                  <h3 className="text-white font-semibold mb-2 flex items-center gap-2 text-sm">
+                    <ImageIcon className="w-4 h-4" />
                   Edit Original Image
                   {drawings.length > 0 && (
                     <span className="ml-2 px-2 py-0.5 bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 text-xs rounded">
@@ -3039,7 +2922,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                     </span>
                   )}
             </h3>
-            <div className="relative overflow-hidden rounded-lg bg-black flex items-center justify-center" ref={containerRef} style={{ minHeight: '500px', maxHeight: '70vh' }}>
+                  <div className="relative overflow-hidden rounded-lg bg-black" ref={containerRef} style={{ width: '100%', aspectRatio: '3/4', minHeight: '400px' }}>
               {activeImageBlobUrl && (
                 <img
                   ref={imageRef}
@@ -3130,7 +3013,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                 onMouseUp={handleCanvasMouseUp}
                 onMouseLeave={handleCanvasMouseUp}
                 className="w-full h-full"
-                style={{ maxHeight: '70vh', objectFit: 'contain', cursor: currentTool === 'none' ? 'grab' : currentTool === 'text' ? 'text' : 'crosshair' }}
+                style={{ cursor: currentTool === 'none' ? 'grab' : currentTool === 'text' ? 'text' : 'crosshair' }}
               />
               {/* Text Input Dialog - Positioned at exact click location */}
               {textInputPosition && canvasRef.current && (
@@ -3261,6 +3144,114 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                   <p className="text-xs text-gray-500 mt-2">Select a damage type to add                  </p>
                 </div>
               )}
+                  </div>
+                </div>
+
+                {/* Previous Image Container - Side by Side */}
+                <div className="bg-white/10 backdrop-blur-lg rounded-xl p-3">
+                  <h3 className="text-white font-semibold mb-2 flex items-center gap-2 text-sm">
+                    <ImageIcon className="w-4 h-4" />
+                     Previous Image
+                  </h3>
+                  <div 
+                    className="relative overflow-hidden rounded-lg bg-black group cursor-pointer hover-image-container" 
+                    style={{ width: '100%', aspectRatio: '3/4', minHeight: '400px' }}
+                    onMouseEnter={() => previousImageBlobUrl && setHoveredImage({ url: previousImageBlobUrl, alt: '' })}
+                    onMouseLeave={() => setHoveredImage(null)}
+                  >
+                    {previousImageBlobUrl ? (
+                      <>
+                        <img 
+                          src={previousImageBlobUrl} 
+                          alt="" 
+                          className="w-full h-full object-contain" 
+                        />
+                        {/* AI Comment Overlay */}
+                        {previousDayImage?.previousAiImageComment && (
+                          <div className="absolute bottom-0 left-0 right-0 bg-black/80 backdrop-blur-sm p-2 border-t border-white/20">
+                            <p className="text-xs text-gray-300 font-semibold mb-1">AI Analysis:</p>
+                            <p className="text-xs text-gray-400 whitespace-pre-wrap break-words">
+                              {previousDayImage.previousAiImageComment}
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    ) : loadingPrevious ? (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Loader className="w-6 h-6 animate-spin text-blue-400" />
+                      </div>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-gray-500">
+                        <span className="text-sm">No previous image</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons - Compact, close to Edit Original Image */}
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-3">
+                <p className="text-gray-400 text-xs mb-2 font-semibold">Apply Edits To:</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => handleUseDrawnImageAs('model1')}
+                    disabled={!imageLoaded || uploadingImage === 'ai-model1'}
+                    className="bg-blue-500/20 border border-blue-500/30 text-blue-300 font-semibold py-1.5 px-2 rounded-lg flex items-center justify-center gap-1 disabled:opacity-50 text-xs hover:bg-blue-500/30"
+                  >
+                    {uploadingImage === 'ai-model1' ? (
+                      <Loader className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <>
+                        <Edit2 className="w-3 h-3" />
+                        <span>AI 1</span>
+                      </>
+                    )}
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => handleUseDrawnImageAs('model2')}
+                    disabled={!imageLoaded || uploadingImage === 'ai-model2'}
+                    className="bg-blue-500/20 border border-blue-500/30 text-blue-300 font-semibold py-1.5 px-2 rounded-lg flex items-center justify-center gap-1 disabled:opacity-50 text-xs hover:bg-blue-500/30"
+                  >
+                    {uploadingImage === 'ai-model2' ? (
+                      <Loader className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <>
+                        <Edit2 className="w-3 h-3" />
+                        <span>AI 2</span>
+                      </>
+                    )}
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => handleUseDrawnImageAs('increment')}
+                    disabled={!imageLoaded || uploadingImage === 'increment'}
+                    className="bg-green-500/20 border border-green-500/30 text-green-300 font-semibold py-1.5 px-2 rounded-lg flex items-center justify-center gap-1 disabled:opacity-50 text-xs hover:bg-green-500/30"
+                  >
+                    {uploadingImage === 'increment' ? (
+                      <Loader className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <>
+                        <Upload className="w-3 h-3" />
+                        <span>Increment</span>
+                      </>
+                    )}
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleDownloadDrawnImage}
+                    disabled={!imageLoaded}
+                    className="bg-gray-500/20 border border-gray-500/30 text-gray-300 font-semibold py-1.5 px-2 rounded-lg flex items-center justify-center gap-1 disabled:opacity-50 text-xs"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>Download</span>
+                  </motion.button>
+                </div>
             </div>
             
             {/* Original Image Comment Dropdowns - Below Canvas */}
@@ -3478,7 +3469,6 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                 </div>
               );
             })()}
-          </div>
             </div>
 
             {/* Right Column: Comparison Panel (40%) */}
@@ -3489,63 +3479,58 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                   Reference Images
                 </h3>
                 <div className="space-y-4">
-                  {/* AI Model 1 */}
-                  <div className="bg-white/5 rounded-lg p-3 border border-white/10">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-white font-medium text-sm">AI Model 1</h4>
-                      {selectedImage.aiProcessingStatus === 'processing' && (
-                        <span className="px-2 py-0.5 bg-blue-500/20 border border-blue-500/30 text-blue-400 text-xs rounded">
-                          Processing...
-                        </span>
-                      )}
+                  {/* AI Models - Side by Side */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* AI Model 1 */}
+                    <div className="bg-white/5 rounded-lg p-3 border border-white/10">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-white font-medium text-xs">AI Model 1</h4>
+                        {selectedImage.aiProcessingStatus === 'processing' && (
+                          <span className="px-1.5 py-0.5 bg-blue-500/20 border border-blue-500/30 text-blue-400 text-[10px] rounded">
+                            Processing...
+                          </span>
+                        )}
+                      </div>
+                      <div 
+                        className="relative bg-black rounded-lg mb-2 overflow-hidden group cursor-pointer hover-image-container" 
+                        style={{ aspectRatio: '3/4', minHeight: '200px', maxHeight: '250px' }}
+                        onMouseEnter={() => aiProcessedImageBlobUrls[0] && setHoveredImage({ url: aiProcessedImageBlobUrls[0], alt: 'AI Model 1' })}
+                        onMouseLeave={() => setHoveredImage(null)}
+                      >
+                        {aiProcessedImageBlobUrls[0] ? (
+                          <img src={aiProcessedImageBlobUrls[0]} alt="AI Model 1" className="w-full h-full object-contain" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-gray-500">
+                            <ImageIcon className="w-6 h-6" />
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="relative aspect-video bg-black rounded-lg mb-2 overflow-hidden">
-                      {aiProcessedImageBlobUrls[0] ? (
-                        <img src={aiProcessedImageBlobUrls[0]} alt="AI Model 1" className="w-full h-full object-contain" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-500">
-                          <ImageIcon className="w-8 h-8" />
-                        </div>
-                      )}
-                    </div>
-                  </div>
 
-                  {/* AI Model 2 */}
-                  <div className="bg-white/5 rounded-lg p-3 border border-white/10">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-white font-medium text-sm">AI Model 2</h4>
-                      {selectedImage.aiProcessingStatus === 'processing' && (
-                        <span className="px-2 py-0.5 bg-blue-500/20 border border-blue-500/30 text-blue-400 text-xs rounded">
-                          Processing...
-                        </span>
-                      )}
-                    </div>
-                    <div className="relative aspect-video bg-black rounded-lg mb-2 overflow-hidden">
-                      {aiProcessedImageBlobUrls[1] ? (
-                        <img src={aiProcessedImageBlobUrls[1]} alt="AI Model 2" className="w-full h-full object-contain" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-500">
-                          <ImageIcon className="w-8 h-8" />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Previous Day */}
-                  <div className="bg-white/5 rounded-lg p-3 border border-white/10">
-                    <h4 className="text-white font-medium text-sm mb-2">Previous Day</h4>
-                    <div className="relative aspect-video bg-black rounded-lg mb-2 overflow-hidden">
-                      {previousImageBlobUrl ? (
-                        <img src={previousImageBlobUrl} alt="Previous Day" className="w-full h-full object-contain" />
-                      ) : loadingPrevious ? (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <Loader className="w-6 h-6 animate-spin text-blue-400" />
-                        </div>
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-500">
-                          <span className="text-xs">No previous day image</span>
-                        </div>
-                      )}
+                    {/* AI Model 2 */}
+                    <div className="bg-white/5 rounded-lg p-3 border border-white/10">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-white font-medium text-xs">AI Model 2</h4>
+                        {selectedImage.aiProcessingStatus === 'processing' && (
+                          <span className="px-1.5 py-0.5 bg-blue-500/20 border border-blue-500/30 text-blue-400 text-[10px] rounded">
+                            Processing...
+                          </span>
+                        )}
+                      </div>
+                      <div 
+                        className="relative bg-black rounded-lg mb-2 overflow-hidden group cursor-pointer hover-image-container" 
+                        style={{ aspectRatio: '3/4', minHeight: '200px', maxHeight: '250px' }}
+                        onMouseEnter={() => aiProcessedImageBlobUrls[1] && setHoveredImage({ url: aiProcessedImageBlobUrls[1], alt: 'AI Model 2' })}
+                        onMouseLeave={() => setHoveredImage(null)}
+                      >
+                        {aiProcessedImageBlobUrls[1] ? (
+                          <img src={aiProcessedImageBlobUrls[1]} alt="AI Model 2" className="w-full h-full object-contain" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-gray-500">
+                            <ImageIcon className="w-6 h-6" />
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -3651,6 +3636,58 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
           )}
         </div>
       </div>
+
+      {/* Fixed Approve Button - Always Visible */}
+      {selectedImage && (
+        <motion.button
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={handleApprove}
+          disabled={approving}
+          className="fixed bottom-6 right-6 z-50 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 disabled:from-gray-500 disabled:to-gray-600 text-white font-bold py-4 px-6 rounded-full shadow-2xl flex items-center gap-3 disabled:opacity-50"
+        >
+          {approving ? (
+            <>
+              <Loader className="w-6 h-6 animate-spin" />
+              <span>Approving...</span>
+            </>
+          ) : (
+            <>
+              <CheckCircle className="w-6 h-6" />
+              <span>Approve Image</span>
+            </>
+          )}
+        </motion.button>
+      )}
+
+      {/* Hover Image Overlay */}
+      <AnimatePresence>
+        {hoveredImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/95 z-[9999] flex items-center justify-center"
+            style={{ pointerEvents: 'none' }}
+          >
+            <motion.div
+              initial={{ scale: 0.8 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.8 }}
+              className="relative max-w-[90vw] max-h-[90vh]"
+            >
+              <img
+                src={hoveredImage.url}
+                alt={hoveredImage.alt}
+                className="max-w-full max-h-[90vh] object-contain"
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      </>
     );
   }
 
