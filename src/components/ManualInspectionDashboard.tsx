@@ -26,7 +26,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
-  Eye
+  Eye,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import {
   InspectionImage,
@@ -301,6 +303,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   const [debouncedSearch, setDebouncedSearch] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [showProcessing, setShowProcessing] = useState<boolean>(false);
   
   // Image locking
   const [lockedImageId, setLockedImageId] = useState<number | null>(null);
@@ -4185,9 +4188,13 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
             </div>
           </motion.div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-            <AnimatePresence>
-              {pendingImages.map((image, index) => (
+          <>
+            {/* Complete Images (APPROVED) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+              <AnimatePresence>
+                {pendingImages
+                  .filter(image => image.inspectionStatus === 'APPROVED')
+                  .map((image, index) => (
                 <motion.div
                   key={image.id}
                   initial={{ opacity: 0, y: 20 }}
@@ -4269,9 +4276,124 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                     )}
                   </div>
                 </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
+                  ))}
+              </AnimatePresence>
+            </div>
+
+            {/* Processing Section (Collapsible) */}
+            {pendingImages.filter(image => image.inspectionStatus !== 'APPROVED').length > 0 && (
+              <div className="mt-6">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setShowProcessing(!showProcessing)}
+                  className="w-full bg-blue-500/20 border border-blue-500/30 text-blue-400 font-semibold py-3 px-4 rounded-lg flex items-center justify-between hover:bg-blue-500/30 transition-colors mb-4"
+                >
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-5 h-5" />
+                    <span>Processing ({pendingImages.filter(image => image.inspectionStatus !== 'APPROVED').length})</span>
+                  </div>
+                  {showProcessing ? (
+                    <ChevronUp className="w-5 h-5" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5" />
+                  )}
+                </motion.button>
+
+                {showProcessing && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+                    <AnimatePresence>
+                      {pendingImages
+                        .filter(image => image.inspectionStatus !== 'APPROVED')
+                        .map((image, index) => (
+                          <motion.div
+                            key={image.id}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -20 }}
+                            transition={{ delay: index * 0.05 }}
+                            whileHover={{ scale: 1.02 }}
+                            className={`relative bg-white/10 backdrop-blur-lg rounded-xl p-4 border transition-all duration-200 ${
+                              image.lockInfo?.isLocked && !image.lockInfo?.isCurrentUser
+                                ? 'border-red-500/50 opacity-60 cursor-not-allowed'
+                                : selectedImageIds.includes(image.id)
+                                ? 'border-blue-500/50 bg-blue-500/10'
+                                : 'border-white/20 hover:border-white/30 cursor-pointer'
+                            }`}
+                            onClick={() => {
+                              if (!image.lockInfo?.isLocked || image.lockInfo?.isCurrentUser) {
+                                handleImageClick(image);
+                              }
+                            }}
+                          >
+                            {/* Checkbox for selection */}
+                            <div 
+                              className="absolute top-2 left-2 z-10"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleImageSelection(image.id);
+                              }}
+                            >
+                              <div className={`w-6 h-6 rounded border-2 flex items-center justify-center cursor-pointer transition-all ${
+                                selectedImageIds.includes(image.id)
+                                  ? 'bg-blue-500 border-blue-500'
+                                  : 'bg-white/20 border-white/40 hover:border-white/60'
+                              }`}>
+                                {selectedImageIds.includes(image.id) && (
+                                  <CheckCircle className="w-4 h-4 text-white" />
+                                )}
+                              </div>
+                            </div>
+                            
+                            <div className="relative aspect-video bg-black rounded-lg mb-3 overflow-hidden">
+                              <ImageThumbnail image={image} />
+                              <div className="absolute top-2 right-2 bg-yellow-500/90 text-black text-xs font-bold px-2 py-1 rounded">
+                                #{image.processingOrder}
+                              </div>
+                              {/* Lock Indicator */}
+                              {image.lockInfo?.isLocked && (
+                                <div className={`absolute top-2 left-10 flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold ${
+                                  image.lockInfo.isCurrentUser 
+                                    ? 'bg-green-500/90 text-white' 
+                                    : 'bg-red-500/90 text-white'
+                                }`}>
+                                  <Lock className="w-3 h-3" />
+                                  {image.lockInfo.isCurrentUser ? 'You' : 'Locked'}
+                                </div>
+                              )}
+                              {/* Disabled overlay for locked images */}
+                              {image.lockInfo?.isLocked && !image.lockInfo?.isCurrentUser && (
+                                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                  <div className="text-center">
+                                    <Lock className="w-8 h-8 text-red-400 mx-auto mb-2" />
+                                    <p className="text-red-400 text-xs font-semibold">Locked</p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <p className="text-white font-semibold text-sm">{image.carNumber}</p>
+                                <span className={`px-2 py-1 border text-xs rounded ${getStatusBadgeColor(image.inspectionStatus)}`}>
+                                  {image.inspectionStatus}
+                                </span>
+                              </div>
+                              <p className="text-gray-400 text-xs">{getImageTypeLabel(image.imageType)}</p>
+                              <p className="text-gray-500 text-xs">Inspection #{image.inspectionId}</p>
+                              {image.lockInfo?.isLocked && !image.lockInfo?.isCurrentUser && image.lockInfo?.lockedAt && (
+                                <p className="text-red-400 text-xs">
+                                  Inspected by another user {formatLockTime(image.lockInfo.lockedAt)}
+                                </p>
+                              )}
+                            </div>
+                          </motion.div>
+                        ))}
+                    </AnimatePresence>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
 
         {/* Pagination */}
