@@ -159,10 +159,10 @@ const InspectionDashboardManagement: React.FC<InspectionDashboardManagementProps
                     </tr>
                   </thead>
                   <tbody>
-                    {users.map((user) => {
+                    {users.map((user, index) => {
                       const isCurrentUser = user.userId === currentUserId;
                       return (
-                        <tr key={user.userId} className="hover:bg-white/5 transition-colors">
+                        <tr key={`user-${user.userId}-${index}`} className="hover:bg-white/5 transition-colors">
                           <td className="px-4 py-3 text-white font-medium">
                             <div className="flex items-center gap-2">
                               {user.userId}
