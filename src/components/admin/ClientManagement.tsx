@@ -24,6 +24,7 @@ const ClientManagement: React.FC<ClientManagementProps> = ({ onBack }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedInspectionId, setSelectedInspectionId] = useState<number | null>(null);
   const [expandedCars, setExpandedCars] = useState<Set<string>>(new Set());
+  const [selectedDriverUserId, setSelectedDriverUserId] = useState<string>('all');
 
   useEffect(() => {
     fetchClients();
@@ -63,10 +64,27 @@ const ClientManagement: React.FC<ClientManagementProps> = ({ onBack }) => {
     }
   };
 
-  // Group inspections by registration number
-  const groupedInspections = useMemo(() => {
-    const grouped: GroupedInspections = {};
+  // Get unique driver user IDs from inspections
+  const uniqueDriverUserIds = useMemo(() => {
+    const userIds = new Set<string>();
     inspections.forEach((inspection) => {
+      if (inspection.userId) {
+        userIds.add(inspection.userId);
+      }
+    });
+    return Array.from(userIds).sort();
+  }, [inspections]);
+
+  // Filter inspections by driver user ID first, then group by registration number
+  const groupedInspections = useMemo(() => {
+    // Filter by driver user ID if selected
+    let filteredInspections = inspections;
+    if (selectedDriverUserId !== 'all') {
+      filteredInspections = inspections.filter(inspection => inspection.userId === selectedDriverUserId);
+    }
+
+    const grouped: GroupedInspections = {};
+    filteredInspections.forEach((inspection) => {
       const regNum = inspection.registrationNumber;
       if (!grouped[regNum]) {
         grouped[regNum] = [];
@@ -80,7 +98,7 @@ const ClientManagement: React.FC<ClientManagementProps> = ({ onBack }) => {
       );
     });
     return grouped;
-  }, [inspections]);
+  }, [inspections, selectedDriverUserId]);
 
   // Filter grouped inspections by search term and sort by oldest inspection first
   const filteredGroupedInspections = useMemo(() => {
@@ -178,8 +196,26 @@ const ClientManagement: React.FC<ClientManagementProps> = ({ onBack }) => {
           </motion.div>
         )}
 
-        {/* Search */}
-        <div className="mb-6">
+        {/* Filters */}
+        <div className="mb-6 space-y-4">
+          {/* Driver User ID Filter */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-400 mb-2">Filter by Driver User ID</label>
+            <select
+              value={selectedDriverUserId}
+              onChange={(e) => setSelectedDriverUserId(e.target.value)}
+              className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-purple-400 appearance-none cursor-pointer"
+            >
+              <option value="all" className="bg-gray-800 text-white">All Drivers</option>
+              {uniqueDriverUserIds.map((userId) => (
+                <option key={userId} value={userId} className="bg-gray-800 text-white">
+                  {userId}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Search */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
