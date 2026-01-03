@@ -20,7 +20,8 @@ import {
 import {
   replaceAIImage,
   uploadIncrementImage,
-  updateImageComments
+  updateImageComments,
+  getPreviousDayImage
 } from '../services/api/manualInspectionService';
 import {
   getPresignedUploadUrl,
@@ -267,22 +268,49 @@ const ClientInspectionEditor: React.FC<ClientInspectionEditorProps> = ({ inspect
           );
         }
 
-        // Previous day AI processed image (if previousImageId exists, fetch its AI processed image)
-        if (image.images.previousImageId) {
-          // Find the previous image in the data to get its AI processed image URL
-          const previousImage = data.images.find(img => img.id === image.images.previousImageId);
-          if (previousImage?.images.aiProcessedImageStreamUrl) {
-            imagePromises.push(
-              fetchImageBlobDirect(previousImage.images.aiProcessedImageStreamUrl)
-                .then(blob => {
-                  if (blob) {
-                    urlMap.set(`previous-ai-processed-${image.id}`, URL.createObjectURL(blob));
+        // Previous day AI processed image - use getPreviousDayImage API (like manual inspection)
+        // This fetches from the previous day's inspection, not the current one
+        imagePromises.push(
+          getPreviousDayImage(data.inspection.registrationNumber, image.imageType)
+            .then(async (previousResponse) => {
+              if (previousResponse.found && previousResponse.image) {
+                const prevImage = previousResponse.image;
+                // Get AI processed image from previous day's image
+                // Use the first AI processed image URL (model1) if available
+                if (prevImage.aiProcessedImageUrls && prevImage.aiProcessedImageUrls.length > 0) {
+                  const aiProcessedUrl = prevImage.aiProcessedImageUrls[0];
+                  try {
+                    // Handle S3 URLs directly
+                    if (aiProcessedUrl.includes('s3.amazonaws.com') || aiProcessedUrl.includes('s3.') || (aiProcessedUrl.startsWith('https://') && !aiProcessedUrl.includes('/api/'))) {
+                      // For S3 URLs, fetch directly
+                      const response = await fetch(aiProcessedUrl, {
+                        cache: 'no-store',
+                        headers: {
+                          'Cache-Control': 'no-cache'
+                        }
+                      });
+                      if (response.ok) {
+                        const blob = await response.blob();
+                        urlMap.set(`previous-ai-processed-${image.id}`, URL.createObjectURL(blob));
+                      }
+                    } else {
+                      // For API stream URLs, use fetchImageBlobDirect
+                      const blob = await fetchImageBlobDirect(aiProcessedUrl);
+                      if (blob) {
+                        urlMap.set(`previous-ai-processed-${image.id}`, URL.createObjectURL(blob));
+                      }
+                    }
+                  } catch (err) {
+                    console.error(`[ClientInspectionEditor] Failed to load previous day AI processed image for ${image.imageType}:`, err);
                   }
-                })
-                .catch(() => {})
-            );
-          }
-        }
+                }
+              }
+            })
+            .catch((err) => {
+              // Silently fail if previous day image doesn't exist
+              console.log(`[ClientInspectionEditor] No previous day image for ${image.imageType}:`, err);
+            })
+        );
       });
 
       await Promise.all(imagePromises);
