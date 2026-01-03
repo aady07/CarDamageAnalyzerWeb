@@ -278,3 +278,62 @@ export async function removeInspectionDashboardUser(userId: string): Promise<Add
   const { data } = await apiClient.post<AddUserResponse>(`/api/admin/inspection-dashboard/users/${userId}/remove`);
   return data;
 }
+
+// Inspection Editing Types
+export interface UpdateImageRequest {
+  imageId: number;
+  imageType: 'aiProcessed' | 'increment';
+  imageFile: File;
+}
+
+export interface UpdateImageResponse {
+  success: boolean;
+  message: string;
+  imageUrl?: string;
+  imageStreamUrl?: string;
+}
+
+export interface UpdateCommentRequest {
+  imageId: number;
+  commentType: 'ai1' | 'increment';
+  comment: string;
+}
+
+export interface UpdateCommentResponse {
+  success: boolean;
+  message: string;
+  comment?: string;
+}
+
+// Inspection Editing Functions
+export async function updateInspectionImage(
+  inspectionId: number,
+  request: UpdateImageRequest
+): Promise<UpdateImageResponse> {
+  const formData = new FormData();
+  formData.append('imageId', request.imageId.toString());
+  formData.append('imageType', request.imageType);
+  formData.append('imageFile', request.imageFile);
+  
+  const { data } = await apiClient.post<UpdateImageResponse>(
+    `/api/admin/inspections/${inspectionId}/images/update`,
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    }
+  );
+  return data;
+}
+
+export async function updateInspectionComment(
+  inspectionId: number,
+  request: UpdateCommentRequest
+): Promise<UpdateCommentResponse> {
+  const { data } = await apiClient.post<UpdateCommentResponse>(
+    `/api/admin/inspections/${inspectionId}/comments/update`,
+    request
+  );
+  return data;
+}
