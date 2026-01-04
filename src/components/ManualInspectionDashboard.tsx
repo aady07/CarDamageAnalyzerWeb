@@ -362,6 +362,8 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   const imageRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const imagesGridRef = useRef<HTMLDivElement>(null);
+  const previousPageRef = useRef<number>(1);
 
   const colors = ['#00FF00']; // Only green
 
@@ -551,6 +553,27 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
       fetchPendingImages();
     }
   }, [sortBy, sortOrder, statusFilter, debouncedSearch, currentPage, pageSize]);
+
+  // Scroll to images grid when page changes and images are loaded
+  useEffect(() => {
+    // Only scroll if page actually changed (not on initial load)
+    const pageChanged = previousPageRef.current !== currentPage;
+    previousPageRef.current = currentPage;
+    
+    if (pageChanged && pendingImages.length > 0 && imagesGridRef.current && !loading) {
+      // Use requestAnimationFrame with a small delay to ensure DOM is ready and images are rendering
+      const scrollTimeout = setTimeout(() => {
+        if (imagesGridRef.current) {
+          imagesGridRef.current.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'start' 
+          });
+        }
+      }, 100);
+      
+      return () => clearTimeout(scrollTimeout);
+    }
+  }, [currentPage, pendingImages.length, loading]);
 
   const fetchPendingImages = async (silent: boolean = false) => {
     try {
@@ -4152,7 +4175,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
       )}
 
       {/* Images Grid */}
-      <div className="px-4 md:px-8 pb-8">
+      <div ref={imagesGridRef} className="px-4 md:px-8 pb-8">
         {pendingImages.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
