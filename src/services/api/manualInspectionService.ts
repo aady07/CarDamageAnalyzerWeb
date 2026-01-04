@@ -58,6 +58,8 @@ export interface InspectionImage {
   lockInfo?: LockInfo;
   // Previous day image fields
   previousAiImageComment?: string; // AI comment for the previous day's image
+  previousImageInspectionId?: number; // The inspection ID that the previous image belongs to
+  previousImageDate?: string; // The date (date only, no time) of the previous image's inspection
 }
 
 export interface PaginationInfo {

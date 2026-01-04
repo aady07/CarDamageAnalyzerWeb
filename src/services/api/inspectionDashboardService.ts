@@ -1,4 +1,5 @@
 import { apiClient } from './authenticatedApiService';
+import { cognitoService } from '../cognitoService';
 
 // TypeScript interfaces matching the API documentation
 
@@ -59,6 +60,7 @@ export interface ImageImages {
   previousImageUrl: string | null;
   previousImageStreamUrl: string | null;
   previousImageId: number | null;
+  previousImageDate: string | null;
   incrementImageUrl: string | null;
   incrementImageStreamUrl: string | null;
   aiProcessedImageUrl: string | null;
@@ -182,8 +184,24 @@ export async function fetchImageBlob(streamUrl: string | null): Promise<Blob | n
       ? streamUrl 
       : `${apiClient.defaults.baseURL || ''}${streamUrl}`;
     
-    const response = await apiClient.get(url, { responseType: 'blob' });
-    return response.data as Blob;
+    // Get auth token from Cognito (same as apiClient)
+    const token = await cognitoService.getAccessToken();
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    // Use fetch with cache: 'no-store' to prevent browser caching
+    const response = await fetch(url, { 
+      headers,
+      cache: 'no-store' // Prevent caching
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.statusText}`);
+    }
+    
+    return await response.blob();
   } catch (error) {
     console.error('Failed to fetch image blob:', streamUrl, error);
     return null;

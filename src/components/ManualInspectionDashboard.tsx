@@ -3242,10 +3242,25 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
 
                 {/* Previous Image Container - Side by Side */}
                 <div className="bg-white/10 backdrop-blur-lg rounded-xl p-3">
-                  <h3 className="text-white font-semibold mb-2 flex items-center gap-2 text-sm">
-                    <ImageIcon className="w-4 h-4" />
-                     Previous Image
-                  </h3>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-white font-semibold flex items-center gap-2 text-sm">
+                      <ImageIcon className="w-4 h-4" />
+                      Previous Image
+                    </h3>
+                    {(previousDayImage?.previousImageInspectionId || previousDayImage?.previousImageDate) && (
+                      <div className="flex items-center gap-2 text-xs text-gray-400">
+                        {previousDayImage.previousImageDate && (
+                          <span>{new Date(previousDayImage.previousImageDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                        )}
+                        {previousDayImage.previousImageInspectionId && previousDayImage.previousImageDate && (
+                          <span>•</span>
+                        )}
+                        {previousDayImage.previousImageInspectionId && (
+                          <span>#{previousDayImage.previousImageInspectionId}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <div 
                     className="relative overflow-hidden rounded-lg bg-black group cursor-pointer hover-image-container" 
                     style={{ width: '100%', aspectRatio: '3/4', minHeight: '400px' }}
