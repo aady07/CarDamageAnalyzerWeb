@@ -366,6 +366,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   const paginationRef = useRef<HTMLDivElement>(null);
   const previousPageRef = useRef<number>(1);
   const scrollTriggeredPageRef = useRef<number | null>(null);
+  const currentPageForPollingRef = useRef<number>(1);
 
   const colors = ['#00FF00']; // Only green
 
@@ -500,9 +501,12 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
           setHasAccess(true);
     fetchPendingImages();
     
-    // Poll every 30 seconds for new images
+    // Poll every 30 seconds for new images (only when on page 1)
     pollingIntervalRef.current = setInterval(() => {
-      fetchPendingImages(true);
+      // Only poll for new images if we're on page 1
+      if (currentPageForPollingRef.current === 1) {
+        fetchPendingImages(true, 1);
+      }
     }, 30000);
           
           // Lock status polling will be set up after first fetch
@@ -556,14 +560,35 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
     }
   }, [sortBy, sortOrder, statusFilter, debouncedSearch, currentPage, pageSize]);
 
+  // Keep polling ref in sync with currentPage
+  useEffect(() => {
+    currentPageForPollingRef.current = currentPage;
+  }, [currentPage]);
+
   // Track page changes for scroll
   useEffect(() => {
     const pageChanged = previousPageRef.current !== currentPage;
     if (pageChanged) {
       previousPageRef.current = currentPage;
       scrollTriggeredPageRef.current = currentPage;
+      
+      // Stop instant polling if navigating away from page 1
+      if (currentPage !== 1 && lockStatusPollingRef.current) {
+        clearInterval(lockStatusPollingRef.current);
+        lockStatusPollingRef.current = null;
+      }
+      
+      // Start instant polling if navigating to page 1 and we have images
+      if (currentPage === 1 && !lockStatusPollingRef.current && pendingImages.length > 0) {
+        lockStatusPollingRef.current = setInterval(() => {
+          // Only poll if still on page 1
+          if (currentPageForPollingRef.current === 1) {
+            fetchPendingImages(true);
+          }
+        }, 10000);
+      }
     }
-  }, [currentPage]);
+  }, [currentPage, pendingImages.length]);
 
   // Scroll to images grid when page changes and images are loaded
   useEffect(() => {
@@ -597,16 +622,18 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
     }
   }, [currentPage, pendingImages.length, loading]);
 
-  const fetchPendingImages = async (silent: boolean = false) => {
+  const fetchPendingImages = async (silent: boolean = false, pageOverride?: number) => {
     try {
       if (!silent) {
         setLoading(true);
       }
       setError('');
+      // Use pageOverride if provided (for polling), otherwise use currentPage
+      const pageToFetch = pageOverride !== undefined ? pageOverride : currentPage;
       const params: any = {
         sortBy,
         sortOrder,
-        page: currentPage,
+        page: pageToFetch,
         limit: pageSize
       };
       if (statusFilter !== 'all') {
@@ -625,14 +652,33 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
         fullResponse: response
       });
       if (response.success) {
-        setPendingImages(response.images);
+        // Always update images and pagination when fetching current page
+        // Only skip updating images if we're polling a different page (shouldn't happen with current logic)
+        const isCurrentPage = pageToFetch === currentPageForPollingRef.current;
+        
+        if (isCurrentPage || !silent) {
+          // Update images if fetching current page or if it's a manual fetch (not silent polling)
+          setPendingImages(response.images);
+        }
+        
+        // Always update pagination to keep total count accurate
         if (response.pagination) {
           setPagination(response.pagination);
         }
-        // Set up lock status polling if not already set
-        if (!lockStatusPollingRef.current && response.images.length > 0) {
+        
+        // Set up instant polling only on page 1 (for new image detection)
+        // Clear existing polling if we're not on page 1
+        if (lockStatusPollingRef.current) {
+          clearInterval(lockStatusPollingRef.current);
+          lockStatusPollingRef.current = null;
+        }
+        // Only start instant polling if we're on page 1
+        if (currentPageForPollingRef.current === 1 && !lockStatusPollingRef.current && response.images.length > 0) {
           lockStatusPollingRef.current = setInterval(() => {
-            fetchPendingImages(true);
+            // Check current page from ref (always up-to-date)
+            if (currentPageForPollingRef.current === 1) {
+              fetchPendingImages(true, 1);
+            }
           }, 10000);
         }
       } else {
