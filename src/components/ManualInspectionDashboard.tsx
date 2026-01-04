@@ -363,7 +363,9 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   const containerRef = useRef<HTMLDivElement>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const imagesGridRef = useRef<HTMLDivElement>(null);
+  const paginationRef = useRef<HTMLDivElement>(null);
   const previousPageRef = useRef<number>(1);
+  const scrollTriggeredPageRef = useRef<number | null>(null);
 
   const colors = ['#00FF00']; // Only green
 
@@ -554,22 +556,42 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
     }
   }, [sortBy, sortOrder, statusFilter, debouncedSearch, currentPage, pageSize]);
 
+  // Track page changes for scroll
+  useEffect(() => {
+    const pageChanged = previousPageRef.current !== currentPage;
+    if (pageChanged) {
+      previousPageRef.current = currentPage;
+      scrollTriggeredPageRef.current = currentPage;
+    }
+  }, [currentPage]);
+
   // Scroll to images grid when page changes and images are loaded
   useEffect(() => {
-    // Only scroll if page actually changed (not on initial load)
-    const pageChanged = previousPageRef.current !== currentPage;
-    previousPageRef.current = currentPage;
+    // Only scroll if we have a pending scroll for this page and images are ready
+    const shouldScroll = scrollTriggeredPageRef.current === currentPage && 
+                         pendingImages.length > 0 && 
+                         imagesGridRef.current && 
+                         !loading;
     
-    if (pageChanged && pendingImages.length > 0 && imagesGridRef.current && !loading) {
-      // Use requestAnimationFrame with a small delay to ensure DOM is ready and images are rendering
+    if (shouldScroll) {
+      // Clear the scroll trigger so we don't scroll again
+      scrollTriggeredPageRef.current = null;
+      
+      // Use requestAnimationFrame with delay to ensure DOM is ready and images are rendering
       const scrollTimeout = setTimeout(() => {
         if (imagesGridRef.current) {
-          imagesGridRef.current.scrollIntoView({ 
-            behavior: 'smooth', 
-            block: 'start' 
+          // Get the position of the images grid relative to viewport
+          const rect = imagesGridRef.current.getBoundingClientRect();
+          const scrollY = window.scrollY || window.pageYOffset;
+          const targetY = rect.top + scrollY - 20; // 20px offset from top
+          
+          // Scroll smoothly to the images grid
+          window.scrollTo({
+            top: targetY,
+            behavior: 'smooth'
           });
         }
-      }, 100);
+      }, 200);
       
       return () => clearTimeout(scrollTimeout);
     }
@@ -4214,11 +4236,11 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
             <AnimatePresence>
               {pendingImages.map((image, index) => (
                 <motion.div
-                  key={image.id}
+                  key={`${currentPage}-${image.id}`}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ delay: index * 0.05 }}
+                  exit={{ opacity: 0, transition: { duration: 0.05 } }}
+                  transition={{ delay: index * 0.02, duration: 0.2 }}
                   whileHover={{ scale: 1.02 }}
                   className={`relative bg-white/10 backdrop-blur-lg rounded-xl p-4 border transition-all duration-200 ${
                     image.lockInfo?.isLocked && !image.lockInfo?.isCurrentUser
@@ -4301,7 +4323,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
 
         {/* Pagination */}
         {pagination && pagination.totalPages > 1 && (
-          <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 bg-white/10 backdrop-blur-lg rounded-xl p-4">
+          <div ref={paginationRef} className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 bg-white/10 backdrop-blur-lg rounded-xl p-4">
             <div className="text-white text-sm">
               Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, pagination.total)} of {pagination.total} images
             </div>
