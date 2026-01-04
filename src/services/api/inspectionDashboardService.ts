@@ -60,6 +60,7 @@ export interface ImageImages {
   previousImageUrl: string | null;
   previousImageStreamUrl: string | null;
   previousImageId: number | null;
+  previousImageDate: string | null;
   incrementImageUrl: string | null;
   incrementImageStreamUrl: string | null;
   aiProcessedImageUrl: string | null;

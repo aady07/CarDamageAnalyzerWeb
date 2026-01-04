@@ -454,7 +454,11 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
             </motion.button>
             <div className="min-w-0 flex-1">
               <h1 className="text-lg sm:text-xl md:text-3xl font-bold text-white truncate">Inspection Dashboard</h1>
-              <p className="text-gray-400 text-xs sm:text-sm md:text-base truncate">{inspection.registrationNumber}</p>
+              <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                <p className="text-gray-400 text-xs sm:text-sm md:text-base truncate">{inspection.registrationNumber}</p>
+                <span className="text-gray-500 text-xs sm:text-sm">•</span>
+                <p className="text-gray-400 text-xs sm:text-sm md:text-base">Inspection #{inspection.id}</p>
+              </div>
             </div>
           </div>
         </div>
@@ -828,7 +832,14 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
                   {/* 2. Previous Image */}
                   {previousImageUrl && (
                     <div className="bg-white/5 rounded-lg sm:rounded-xl p-3 sm:p-4">
-                      <h3 className="text-white font-semibold mb-2 sm:mb-3 text-xs sm:text-sm">Original Previous Image</h3>
+                      <div className="flex items-center justify-between mb-2 sm:mb-3">
+                        <h3 className="text-white font-semibold text-xs sm:text-sm">Original Previous Image</h3>
+                        {image.images.previousImageDate && (
+                          <span className="text-gray-400 text-xs sm:text-sm">
+                            {formatDateOnly(image.images.previousImageDate)}
+                          </span>
+                        )}
+                      </div>
                       <div className="relative rounded-lg overflow-hidden bg-black/20 cursor-pointer group active:opacity-90" style={{ minHeight: '200px' }}>
                         <img
                           src={previousImageUrl}
