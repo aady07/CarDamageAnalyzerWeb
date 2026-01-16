@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "76ff68bf-ed7f-4f6c-80c8-64d19cbb14f9"
+      }
+    },
+    "android": {
+      "package": "com.miraista.cardamageanalyzerweb"
+    }
+  }
+}

@@ -1,12 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Webcam from 'react-webcam';
-import { ArrowLeft, AlertTriangle, HelpCircle, Brain, Play, TestTube } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, HelpCircle, Brain, Play } from 'lucide-react';
 import SuccessScreen from './SuccessScreen';
 import { CaptureSegment, CaptureSegmentId, SegmentStatus } from '../types/capture';
 import { LocalAndroidImageStorageStrategy, StoredImageReference } from '../services/storage/imageStorageStrategy';
 import { getAndroidBridge } from '../services/androidBridge';
 import { getSessionType } from '../utils/sessionType';
+import { tfliteDetectionService, Detection } from '../services/tfliteDetection';
+// import { BoundingBoxOverlay } from './BoundingBoxOverlay'; // Commented out - visual overlay disabled, ML detection still runs in background
 
 
 
@@ -16,7 +18,7 @@ interface CameraScreenProps {
   onBack: () => void;
 }
 
-type ScanStatus = 'idle' | 'recording' | 'processing' | 'completed' | 'error';
+type ScanStatus = 'idle' | 'recording' | 'processing' | 'completed' | 'error' | 'failed';
 const CAPTURE_SEGMENTS: CaptureSegment[] = [
   {
     id: 'front',
@@ -149,6 +151,26 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
   const [showArrowAfterVerify, setShowArrowAfterVerify] = useState(false);
   const [edgeDensity, setEdgeDensity] = useState(0);
   const [alignmentScore, setAlignmentScore] = useState(0);
+  
+  // ML Detection state
+  const [mlDetections, setMlDetections] = useState<Detection[]>([]);
+  const [mlModelLoaded, setMlModelLoaded] = useState(false);
+  const [mlApproved, setMlApproved] = useState(false); // ML validation approved (expected parts or 3 wrong parts)
+  const [showNoCarDetected, setShowNoCarDetected] = useState(false); // Show "No car detected" prompt
+  const [showManualCapture, setShowManualCapture] = useState(false); // Show manual capture button for non-Front parts when no parts detected
+  const [showPartNotDetected, setShowPartNotDetected] = useState(false); // Show "Part not detected" message at top
+  
+  // Counters (only for Front part)
+  const noPartCounterRef = useRef<number>(0); // Counter for no-part-detected scenarios (Front only)
+  const wrongPartCounterRef = useRef<number>(0); // Counter for wrong parts detected (Front only)
+  const mlRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Timeout for ML retry
+  const mlApprovedRef = useRef<boolean>(false); // Ref to track ML approval (for immediate access)
+  const mlInferenceCountRef = useRef<number>(0); // Track ML inference count for Front part (3 checks)
+  
+  const mlDetectionIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isMlDetectingRef = useRef<boolean>(false);
+  const showManualCaptureRef = useRef<boolean>(false); // Ref for manual capture state (for edge detection check)
+  
   const isAnalyzingRef = useRef<boolean>(false); // Use ref instead of state to avoid recreating function
   const completeScanRef = useRef<(() => Promise<void>) | null>(null); // Store completeScan function to avoid dependency issues
   const stencilImageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map()); // Cache loaded stencil images
@@ -438,11 +460,96 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
   useEffect(() => {
     analyzeEdgeDensityRef.current = analyzeEdgeDensity;
   }, [analyzeEdgeDensity]);
+
+  // Load TFLite model on mount
+  useEffect(() => {
+    let mounted = true;
+    
+    const loadModel = async () => {
+      try {
+        console.log('[ML Detection] Loading TFLite model...');
+        await tfliteDetectionService.loadModel('./best_float16.tflite');
+        if (mounted) {
+          setMlModelLoaded(true);
+          console.log('[ML Detection] ✅ Model loaded successfully');
+        }
+      } catch (error) {
+        console.error('[ML Detection] ❌ Failed to load model');
+        console.error('[ML Detection] Error type:', typeof error);
+        console.error('[ML Detection] Error message:', error instanceof Error ? error.message : 'No message');
+        console.error('[ML Detection] Error stack:', error instanceof Error ? error.stack : 'No stack');
+        console.error('[ML Detection] Full error:', error);
+        if (mounted) {
+          setMlModelLoaded(false);
+        }
+      }
+    };
+
+    loadModel();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // ML Detection function - runs inference on camera frame
+  const runMLDetection = useCallback(async (): Promise<{ 
+    detections: Detection[]; 
+    validation: { isValid: boolean; message: string } 
+  }> => {
+    if (!webcamRef.current?.video || !mlModelLoaded || isMlDetectingRef.current) {
+      return { detections: [], validation: { isValid: false, message: 'Model not ready' } };
+    }
+
+    try {
+      isMlDetectingRef.current = true;
+      const video = webcamRef.current.video;
+      const videoWidth = video.videoWidth || 640;
+      const videoHeight = video.videoHeight || 480;
+
+      // Get current stencil part name
+      const currentStencil = stencilImages[currentStencilIndex];
+      const currentPartName = currentStencil?.label || '';
+
+      // Run detection
+      const result = await tfliteDetectionService.detectCarParts(
+        video,
+        currentPartName,
+        videoWidth,
+        videoHeight
+      );
+
+      if (result.success) {
+        setMlDetections(result.detections);
+        return {
+          detections: result.detections,
+          validation: result.validation
+        };
+      } else {
+        setMlDetections([]);
+        return {
+          detections: [],
+          validation: { isValid: false, message: result.error || 'Detection failed' }
+        };
+      }
+    } catch (error) {
+      console.error('[ML Detection] Error:', error);
+      setMlDetections([]);
+      return {
+        detections: [],
+        validation: { isValid: false, message: 'Detection error' }
+      };
+    } finally {
+      isMlDetectingRef.current = false;
+    }
+  }, [mlModelLoaded, currentStencilIndex, stencilImages]);
   
   // Reset score history and previous frame when stencil changes
   useEffect(() => {
     scoreHistoryRef.current = [];
     previousFrameRef.current = null;
+    noPartCounterRef.current = 0; // Reset ML counter when stencil changes
+    setMlDetections([]); // Clear detections
   }, [currentStencilIndex]);
 
   // Image capture function - must be defined before useEffect that uses it
@@ -495,6 +602,94 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     captureImageRef.current = captureImage;
   }, [captureImage]);
 
+  // Manual capture handler for non-Front parts when no parts detected
+  const handleManualCapture = useCallback(async () => {
+    console.log('[Manual Capture] Button clicked!');
+    const currentStencil = stencilImages[currentStencilIndex];
+    if (!currentStencil) {
+      console.error('[Manual Capture] No current stencil found');
+      return;
+    }
+    
+    const segmentIndex = CAPTURE_SEGMENTS.findIndex(seg => seg.id === currentStencil.id);
+    if (segmentIndex === -1) {
+      console.error(`[Manual Capture] Could not find segment for stencil: ${currentStencil.id}`);
+      return;
+    }
+    
+    console.log(`[Manual Capture] Capturing ${currentStencil.label} manually (segment index: ${segmentIndex})`);
+    
+    // Check if webcam is available
+    if (!webcamRef.current) {
+      console.error('[Manual Capture] Webcam not available');
+      return;
+    }
+    
+    try {
+      const success = await captureImage(CAPTURE_SEGMENTS[segmentIndex].id as CaptureSegmentId, segmentIndex);
+      console.log(`[Manual Capture] Capture result: ${success}`);
+      
+      if (success) {
+        // Hide manual capture button and message
+        setShowManualCapture(false);
+        showManualCaptureRef.current = false;
+        setShowPartNotDetected(false);
+        
+        // Mark stencil as verified to proceed to next
+        setStencilVerified(true);
+        
+        // Move to next stencil after 4 seconds, or complete scan if last stencil
+        if (currentStencilIndex < stencilImages.length - 1) {
+          const nextIndex = currentStencilIndex + 1;
+          console.log(`[Manual Capture] Moving to next stencil ${nextIndex} in 4 seconds`);
+          setTimeout(() => {
+            setCurrentStencilIndex(nextIndex);
+            setStencilVerified(false);
+            successCountRef.current = 0;
+          }, 4000);
+        } else {
+          // Last stencil captured manually - complete the scan
+          console.log(`[Manual Capture] Last stencil captured manually. All ${stencilImages.length} stencils completed!`);
+          setTimeout(() => {
+            const uploadedCount = Object.keys(storedImagesRef.current).length;
+            console.log(`[Manual Capture] Uploaded images: ${uploadedCount}/${CAPTURE_SEGMENTS.length}`);
+            if (uploadedCount === CAPTURE_SEGMENTS.length) {
+              console.log(`[Manual Capture] All images uploaded, completing scan...`);
+              if (completeScanRef.current) {
+                completeScanRef.current();
+              } else {
+                console.warn(`[Manual Capture] completeScan not available yet, will retry...`);
+                // Retry after a short delay
+                setTimeout(() => {
+                  if (completeScanRef.current) {
+                    completeScanRef.current();
+                  } else {
+                    console.error(`[Manual Capture] completeScan still not available after retry`);
+                  }
+                }, 500);
+              }
+            } else {
+              console.warn(`[Manual Capture] Not all images uploaded yet (${uploadedCount}/${CAPTURE_SEGMENTS.length}), waiting...`);
+              // Wait a bit more and check again
+              setTimeout(() => {
+                const finalCount = Object.keys(storedImagesRef.current).length;
+                if (finalCount === CAPTURE_SEGMENTS.length && completeScanRef.current) {
+                  completeScanRef.current();
+                } else {
+                  console.warn(`[Manual Capture] Still waiting for images (${finalCount}/${CAPTURE_SEGMENTS.length})`);
+                }
+              }, 1000);
+            }
+          }, 500); // Small delay to ensure image is saved
+        }
+      } else {
+        console.error('[Manual Capture] Capture failed');
+      }
+    } catch (error) {
+      console.error('[Manual Capture] Error during capture:', error);
+    }
+  }, [currentStencilIndex, captureImage, stencilImages]);
+
   // Continuous edge analysis when recording
   useEffect(() => {
     console.log(`[Edge Detection] useEffect triggered - status: ${status}, stencilIndex: ${currentStencilIndex}/${stencilImages.length}, verified: ${stencilVerified}`);
@@ -514,6 +709,19 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       console.log(`[Edge Detection] New stencil detected: ${currentStencilIndex} (${stencilImages[currentStencilIndex]?.label}), resetting counter`);
       successCountRef.current = 0;
       previousStencilIndexRef.current = currentStencilIndex;
+      // Reset ML approval and counters for new stencil
+      mlApprovedRef.current = false; // Reset ref immediately
+      setMlApproved(false);
+      wrongPartCounterRef.current = 0;
+      noPartCounterRef.current = 0;
+      mlInferenceCountRef.current = 0;
+      setShowManualCapture(false);
+      setShowPartNotDetected(false);
+      showManualCaptureRef.current = false;
+      if (mlRetryTimeoutRef.current) {
+        clearTimeout(mlRetryTimeoutRef.current);
+        mlRetryTimeoutRef.current = null;
+      }
     }
 
     // Don't start if already verified
@@ -533,10 +741,10 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       analysisIntervalRef.current = null;
     }
 
-    const requiredSuccessCount = 12; // Need 12 consecutive good scores for verification (increased from 5)
-    const threshold = 0.40; // 40% alignment score threshold - stricter to avoid false positives
+    const requiredSuccessCount = 3; // Need 3 consecutive good scores for verification
+    const threshold = 0.32; // 32% alignment score threshold
     const minScoreConsistency = 0.15; // Scores must be within 15% of each other (low variance)
-    const maxMotionThreshold = 0.20; // Maximum allowed motion between frames (20%)
+    const maxMotionThreshold = 0.30; // Maximum allowed motion between frames (30%)
 
     console.log(`[Edge Detection] Starting analysis interval for stencil ${currentStencilIndex}, current counter: ${successCountRef.current}`);
 
@@ -546,16 +754,140 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
 
     // Add a small delay before starting analysis to prevent immediate hanging
     startDelayTimeoutRef.current = setTimeout(() => {
-      analysisIntervalRef.current = setInterval(async () => {
+      // Main validation loop: ML first, then edge detection
+      const runValidationCycle = async () => {
         if (!analyzeEdgeDensityRef.current) return;
-        const result = await analyzeEdgeDensityRef.current();
-        const score = result.score;
-        const brightness = result.brightness;
-        const motion = result.motion;
+        
+        // Edge case: Check if status is still 'recording' (scan might have been reset/failed)
+        if (status !== 'recording') {
+          console.log(`[ML Detection] Validation cycle stopped - status changed to: ${status}`);
+          return;
+        }
+        
+        // If manual capture is shown, don't run validation cycle - wait for user to click button
+        if (showManualCaptureRef.current) {
+          console.log(`[ML Detection] Manual capture mode active - skipping validation cycle`);
+          return;
+        }
+        
+        // Check ref first (immediate) and state (for React updates)
+        if (mlApprovedRef.current || mlApproved) {
+          // ML already approved, proceed with edge detection only
+          await runEdgeDetectionCycle();
+          return;
+        }
+        
+        // Step 1: Run ML Inference first
+        if (!mlModelLoaded) {
+          // If ML not loaded, skip to edge detection
+          await runEdgeDetectionCycle();
+          return;
+        }
+        
+        if (isMlDetectingRef.current) {
+          // ML inference already running, skip this cycle
+          return;
+        }
+        
+        const mlResult = await runMLDetection();
+        const mlValid = mlResult.validation.isValid;
+        const mlDetectionsCount = mlResult.detections.length;
+        const currentStencil = stencilImages[currentStencilIndex];
+        const currentPartName = currentStencil?.label || '';
+        const isFront = currentPartName === 'Front View' || currentPartName === 'Front' || currentPartName === 'front';
+        
+        const detectedLabels = mlResult.detections.map(d => d.label);
+        
+        // FRONT PART LOGIC (keep as is)
+        if (isFront) {
+          mlInferenceCountRef.current++;
+          
+          if (mlDetectionsCount === 0) {
+            // No parts detected for Front
+            if (mlInferenceCountRef.current >= 3) {
+              // After 3 ML inferences with no parts → show error
+              console.log('[ML Detection] ⚠️ Front: No parts detected after 3 ML inferences. Showing error...');
+              setShowNoCarDetected(true);
+              setStatus('failed');
+              return;
+            } else {
+              // Retry ML after 500ms
+              mlRetryTimeoutRef.current = setTimeout(() => {
+                runValidationCycle();
+              }, 500);
+              return;
+            }
+          } else if (mlValid) {
+            // Expected parts detected (2 out of 9) → approve and proceed to edge detection
+            console.log(`[ML Detection] ✓ Front: Expected parts detected (${detectedLabels.join(', ')})`);
+            mlApprovedRef.current = true;
+            setMlApproved(true);
+            await runEdgeDetectionCycle();
+            return;
+          } else {
+            // Wrong parts detected for Front
+            wrongPartCounterRef.current++;
+            console.log(`[ML Detection] Front: Wrong parts detected: ${detectedLabels.join(', ')} (counter: ${wrongPartCounterRef.current})`);
+            
+            if (wrongPartCounterRef.current >= 3) {
+              // Front: If wrong parts detected 3 times → show scan again immediately
+              console.log('[ML Detection] ⚠️ Front: Wrong parts detected 3 times. Showing scan again...');
+              setStatus('failed');
+              return;
+            } else {
+              // Retry ML after 500ms
+              mlRetryTimeoutRef.current = setTimeout(() => {
+                runValidationCycle();
+              }, 500);
+              return;
+            }
+          }
+        }
+        
+        // NON-FRONT PARTS LOGIC (9 parts)
+        else {
+          if (mlDetectionsCount >= 2) {
+            // Any 2 car parts detected (any 2 out of 23) → approve and proceed to edge detection
+            console.log(`[ML Detection] ✓ ${currentPartName}: 2+ parts detected (${detectedLabels.join(', ')}) - approving`);
+            setShowManualCapture(false);
+            showManualCaptureRef.current = false;
+            setShowPartNotDetected(false);
+            mlApprovedRef.current = true;
+            setMlApproved(true);
+            await runEdgeDetectionCycle();
+            return;
+          } else if (mlDetectionsCount === 0) {
+            // No parts detected → show manual capture button (don't run edge detection)
+            console.log(`[ML Detection] ${currentPartName}: No parts detected - showing manual capture button`);
+            setShowManualCapture(true);
+            showManualCaptureRef.current = true;
+            setShowPartNotDetected(true);
+            // Stop validation cycle - wait for user to click manual capture button
+            return;
+          } else {
+            // Only 1 part detected - show manual capture button
+            console.log(`[ML Detection] ${currentPartName}: Only 1 part detected - showing manual capture button`);
+            setShowManualCapture(true);
+            showManualCaptureRef.current = true;
+            setShowPartNotDetected(true);
+            // Stop validation cycle - wait for user to click manual capture button
+            return;
+          }
+        }
+      };
+      
+      // Edge detection cycle (runs after ML is approved)
+      const runEdgeDetectionCycle = async () => {
+        if (!analyzeEdgeDensityRef.current) return;
+        
+        const edgeResult = await analyzeEdgeDensityRef.current();
+        const score = edgeResult.score;
+        const brightness = edgeResult.brightness;
+        const motion = edgeResult.motion;
       
       // Check multiple conditions before counting as success
-      const isBrightnessValid = brightness >= 0.15 && brightness <= 0.85; // Not too dark or too bright
-      const isMotionLow = motion <= maxMotionThreshold; // Camera must be relatively still
+        const isBrightnessValid = brightness >= 0.15 && brightness <= 0.85;
+        const isMotionLow = motion <= maxMotionThreshold;
       const isScoreHighEnough = score >= threshold;
       
       // Add score to history (keep last 5 scores)
@@ -564,14 +896,14 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         scoreHistoryRef.current.shift();
       }
       
-      // Check score consistency (low variance in recent scores)
+        // Check score consistency
       let isConsistent = true;
       if (scoreHistoryRef.current.length >= 3) {
         const scores = scoreHistoryRef.current;
         const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
         const variance = scores.reduce((sum, s) => sum + Math.pow(s - avg, 2), 0) / scores.length;
         const stdDev = Math.sqrt(variance);
-        isConsistent = stdDev <= minScoreConsistency; // Low standard deviation = consistent
+          isConsistent = stdDev <= minScoreConsistency;
       }
       
       const allConditionsMet = isScoreHighEnough && isBrightnessValid && isMotionLow && isConsistent;
@@ -581,7 +913,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         successCountRef.current++;
         const currentCount = successCountRef.current;
         console.log(`[Edge Detection] Good alignment detected: ${previousCount} → ${currentCount} (${currentCount}/${requiredSuccessCount})`);
-        console.log(`  - Score: ${(score * 100).toFixed(2)}% (threshold: ${(threshold * 100).toFixed(2)}%)`);
+          console.log(`  - Edge Score: ${(score * 100).toFixed(2)}% (threshold: ${(threshold * 100).toFixed(2)}%)`);
         console.log(`  - Brightness: ${(brightness * 100).toFixed(2)}% (valid: ${isBrightnessValid})`);
         console.log(`  - Motion: ${(motion * 100).toFixed(2)}% (low: ${isMotionLow})`);
         console.log(`  - Consistency: ${isConsistent ? '✓' : '✗'}`);
@@ -591,6 +923,12 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
           // Use functional update to ensure we have latest state
           setStencilVerified(prev => {
             if (prev) return prev; // Already verified, don't do anything
+            
+            // If manual capture is shown, don't auto-capture - wait for user to click button
+            if (showManualCaptureRef.current) {
+              console.log(`[Edge Detection] Manual capture mode - waiting for user to click button`);
+              return prev; // Don't verify yet, keep showing manual capture button
+            }
             
             console.log(`[Edge Detection] ✓✓✓ ${stencilImages[currentStencilIndex].label} VERIFIED! ✓✓✓`);
             
@@ -639,21 +977,25 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
             // Arrow timeout will handle hiding the arrow independently
             if (currentStencilIndex < stencilImages.length - 1) {
               const nextIndex = currentStencilIndex + 1;
-              console.log(`[Stencil Progression] Moving from stencil ${currentStencilIndex} (${stencilImages[currentStencilIndex].label}) to stencil ${nextIndex} (${stencilImages[nextIndex].label}) in 5 seconds...`);
+              console.log(`[Stencil Progression] Moving from stencil ${currentStencilIndex} (${stencilImages[currentStencilIndex].label}) to stencil ${nextIndex} (${stencilImages[nextIndex].label}) in 4 seconds...`);
               // Update instruction immediately to guide user
               setTimeout(() => {
                 console.log(`[Stencil Progression] ✓ Now showing stencil ${nextIndex}: ${stencilImages[nextIndex].label}`);
                 setCurrentStencilIndex(nextIndex);
                 setStencilVerified(false);
+                mlApprovedRef.current = false; // Reset ref immediately
+                setMlApproved(false); // Reset ML approval for next stencil
                 // Don't reset showArrowAfterVerify here - let the timeout handle it
                 // This ensures arrow shows for full 5 seconds regardless of stencil transition
                 setEdgeDensity(0);
                 setAlignmentScore(0);
                 successCountRef.current = 0; // Reset for next stencil
+                wrongPartCounterRef.current = 0; // Reset wrong parts counter for next stencil
+                noPartCounterRef.current = 0; // Reset no parts counter for next stencil
                 previousStencilIndexRef.current = nextIndex; // Update previous to next index
                 // Update instruction for new stencil
                 setCurrentInstruction(getCurrentInstruction());
-              }, 5000); // Wait 5 seconds before showing next stencil
+              }, 4000); // Wait 4 seconds before showing next stencil
             } else {
               console.log(`[Stencil Progression] All ${stencilImages.length} stencils completed!`);
               // All stencils verified, check if all images are uploaded and submit claim
@@ -707,7 +1049,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         // Reset counter if any condition fails
         if (successCountRef.current > 0) {
           const reasons = [];
-          if (!isScoreHighEnough) reasons.push(`score too low (${(score * 100).toFixed(2)}% < ${(threshold * 100).toFixed(2)}%)`);
+              if (!isScoreHighEnough) reasons.push(`edge score too low (${(score * 100).toFixed(2)}% < ${(threshold * 100).toFixed(2)}%)`);
           if (!isBrightnessValid) reasons.push(`brightness invalid (${(brightness * 100).toFixed(2)}%)`);
           if (!isMotionLow) reasons.push(`motion too high (${(motion * 100).toFixed(2)}%)`);
           if (!isConsistent) reasons.push('scores inconsistent');
@@ -717,7 +1059,12 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
           scoreHistoryRef.current = []; // Reset history on failure
         }
       }
-      }, 800); // Check every 800ms (increased from 500ms for better performance)
+        };
+        
+        // Start the validation cycle
+        analysisIntervalRef.current = setInterval(() => {
+          runValidationCycle();
+        }, 500); // Check every 500ms
     }, 300); // Wait 300ms before starting analysis to prevent immediate hanging
 
     return () => {
@@ -730,9 +1077,13 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         clearInterval(analysisIntervalRef.current);
         analysisIntervalRef.current = null;
       }
+      if (mlRetryTimeoutRef.current) {
+        clearTimeout(mlRetryTimeoutRef.current);
+        mlRetryTimeoutRef.current = null;
+      }
       // Don't reset counter on cleanup - let it persist
     };
-  }, [status, currentStencilIndex, stencilVerified]); // Removed stencilImages, analyzeEdgeDensity and captureImage to prevent infinite loops
+  }, [status, currentStencilIndex, stencilVerified, mlModelLoaded, runMLDetection]); // Added ML dependencies
 
   // Update instruction when stencil changes or verification status changes
   useEffect(() => {
@@ -875,10 +1226,19 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       }
       captureTimersRef.current.forEach(timer => clearTimeout(timer));
       
+      // Stop ML detection interval
+      if (mlDetectionIntervalRef.current) {
+        clearInterval(mlDetectionIntervalRef.current);
+        mlDetectionIntervalRef.current = null;
+      }
+      
       // Stop video recording if active
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
         mediaRecorderRef.current.stop();
       }
+      
+      // Dispose ML model
+      tfliteDetectionService.dispose();
     };
   }, []);
 
@@ -1198,6 +1558,19 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
     // Reset new UI state
     setCurrentInstruction({ text: '', arrowDirection: 'none' });
     setCameraBlurred(true);
+    mlApprovedRef.current = false; // Reset ref immediately
+    setMlApproved(false);
+    setShowNoCarDetected(false);
+    wrongPartCounterRef.current = 0;
+    noPartCounterRef.current = 0;
+    mlInferenceCountRef.current = 0;
+    setShowManualCapture(false);
+    showManualCaptureRef.current = false;
+    setShowPartNotDetected(false);
+    if (mlRetryTimeoutRef.current) {
+      clearTimeout(mlRetryTimeoutRef.current);
+      mlRetryTimeoutRef.current = null;
+    }
     
     // Clear all timers
     if (recordingIntervalRef.current) {
@@ -1429,6 +1802,21 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
           }}
         />
         
+        {/* ML Detection Bounding Box Overlay - Real-time */}
+        {/* Commented out - visual overlay disabled, ML detection still runs in background */}
+        {/* {status === 'recording' && webcamRef.current?.video && (
+          <div className="absolute inset-0 pointer-events-none">
+            <BoundingBoxOverlay
+              detections={mlDetections}
+              currentPart={stencilImages[currentStencilIndex]?.label || ''}
+              videoWidth={webcamRef.current.video.videoWidth || 640}
+              videoHeight={webcamRef.current.video.videoHeight || 480}
+              containerWidth={window.innerWidth}
+              containerHeight={window.innerHeight}
+            />
+          </div>
+        )} */}
+        
         {/* Stencil Overlay - Only show when recording */}
         {status === 'recording' && currentStencilIndex < stencilImages.length && (
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center px-4 md:px-6">
@@ -1659,6 +2047,61 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
         </div>
       )}
 
+      {/* No Car Detected Overlay */}
+      {showNoCarDetected && (
+        <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="text-center bg-gray-900/95 rounded-2xl p-8 max-w-md mx-4"
+          >
+            <div className="w-32 h-32 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-8">
+              <AlertTriangle className="w-16 h-16 text-red-400" />
+            </div>
+            <h3 className="text-3xl font-bold text-white mb-6">NO CAR DETECTED</h3>
+            <p className="text-white/80 text-lg mb-8">Unable to detect car parts. Please ensure the car is clearly visible in the camera frame.</p>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                setShowNoCarDetected(false);
+                resetScan();
+              }}
+              className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-8 rounded-xl"
+            >
+              Try Again
+            </motion.button>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Failed Status Overlay (for global wrong counter or scan again) */}
+      {status === 'failed' && !showNoCarDetected && (
+        <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="text-center bg-gray-900/95 rounded-2xl p-8 max-w-md mx-4"
+          >
+            <div className="w-32 h-32 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-8">
+              <AlertTriangle className="w-16 h-16 text-red-400" />
+            </div>
+            <h3 className="text-3xl font-bold text-white mb-6">SCAN AGAIN</h3>
+            <p className="text-white/80 text-lg mb-8">Multiple incorrect parts detected. Please restart the scan and ensure you're pointing at the correct car sections.</p>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                resetScan();
+              }}
+              className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-8 rounded-xl"
+            >
+              Restart Scan
+            </motion.button>
+          </motion.div>
+        </div>
+      )}
+
       {/* Back Button */}
       <motion.button
         initial={{ opacity: 0, x: -20 }}
@@ -1863,6 +2306,43 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
             className="w-full bg-red-500 hover:bg-red-600 text-white font-semibold py-3 rounded-2xl shadow-xl border border-red-400/40"
           >
             Retry {activeSegment.label}
+          </motion.button>
+        </div>
+      )}
+
+      {/* Part Not Detected Message - Below Instruction Box */}
+      {status === 'recording' && showPartNotDetected && (
+        <div className="absolute top-52 md:top-56 left-1/2 transform -translate-x-1/2 z-40 w-full max-w-md px-4">
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="bg-yellow-500/20 backdrop-blur-lg rounded-xl px-6 py-4 border border-yellow-400/40 text-center"
+          >
+            <p className="text-yellow-200 font-semibold text-base md:text-lg">Low Score unable to capture press the button</p>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Manual Capture Button - Bottom */}
+      {status === 'recording' && showManualCapture && (
+        <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 z-50 pointer-events-auto">
+          <motion.button
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              console.log('[Manual Capture] Button onClick triggered');
+              handleManualCapture();
+            }}
+            className="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2.5 px-6 rounded-xl shadow-lg border border-blue-400/40 backdrop-blur-sm cursor-pointer"
+            type="button"
+          >
+            capture
           </motion.button>
         </div>
       )}

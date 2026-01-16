@@ -20,6 +20,7 @@ export default defineConfig(({ command, mode }) => {
     },
     optimizeDeps: {
       include: ['@tensorflow/tfjs', '@tensorflow/tfjs-backend-cpu'],
+      exclude: ['@tensorflow/tfjs-tflite'], // Exclude TFLite - using CDN instead
       esbuildOptions: {
         plugins: [],
         define: {

@@ -1,0 +1,2 @@
+var o=typeof globalThis<"u"?globalThis:typeof window<"u"?window:typeof globalThis<"u"?globalThis:typeof self<"u"?self:{};function l(e){return e&&e.__esModule&&Object.prototype.hasOwnProperty.call(e,"default")?e.default:e}export{o as c,l as g};
+//# sourceMappingURL=tfjs-core-8cf962f8.js.map
