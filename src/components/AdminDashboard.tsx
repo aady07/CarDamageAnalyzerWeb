@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Shield, FileText, CheckCircle, XCircle, Clock, Eye, AlertCircle, Loader, Search, SortAsc, SortDesc, User } from 'lucide-react';
+import { ArrowLeft, Shield, FileText, CheckCircle, XCircle, Clock, Eye, AlertCircle, Loader, Search, SortAsc, SortDesc, User, TestTube, Menu, X } from 'lucide-react';
 import { 
   AdminInspection, 
   AdminInspectionDetails,
@@ -13,6 +13,7 @@ import {
   rejectInspection
 } from '../services/api/adminService';
 import ReportManager from './ReportManager';
+import SnapETestDashboard from './SnapETestDashboard';
 
 interface AdminDashboardProps {
   onBack: () => void;
@@ -39,6 +40,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [clientFilter, setClientFilter] = useState<string>('all');
   const [sessionFilter, setSessionFilter] = useState<SessionFilter>('all');
+  const [showSnapETest, setShowSnapETest] = useState(false);
+  const [showMenu, setShowMenu] = useState(true);
 
   // Get unique client names from inspections
   const getUniqueClients = (): string[] => {
@@ -305,6 +308,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         return aValue < bValue ? 1 : -1;
       }
     });
+
+  if (showSnapETest) {
+    return (
+      <SnapETestDashboard onBack={() => setShowSnapETest(false)} />
+    );
+  }
 
   if (detailView === 'report' && selectedInspection) {
     return (
@@ -573,6 +582,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
       <div className="px-4 md:px-8 pt-4 md:pt-8 pb-4">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-center gap-3 md:gap-4">
+            {/* Hamburger Menu Button */}
+            <motion.button
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              onClick={() => setShowMenu(!showMenu)}
+              className="w-10 h-10 md:w-12 md:h-12 bg-white/10 backdrop-blur-lg rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all duration-200"
+            >
+              {showMenu ? (
+                <X className="w-5 h-5 md:w-6 md:h-6" />
+              ) : (
+                <Menu className="w-5 h-5 md:w-6 md:h-6" />
+              )}
+            </motion.button>
             <motion.button
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
@@ -590,16 +612,35 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
               <p className="text-gray-400 text-sm md:text-base">Manage car inspections and approvals</p>
             </div>
           </div>
-          <div className="text-left md:text-right">
-            <p className="text-white font-semibold text-base md:text-lg">{filteredInspections.length} Inspections</p>
-            <p className="text-gray-400 text-xs md:text-sm">{viewMode === 'pending' ? 'Pending' : 'All'}</p>
+          <div className="flex items-center gap-3 md:gap-4">
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setShowSnapETest(true)}
+              className="bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/50 text-yellow-400 px-3 md:px-4 py-2 rounded-lg md:rounded-xl font-semibold text-xs md:text-sm flex items-center gap-2 transition-all duration-200"
+            >
+              <TestTube className="w-4 h-4" />
+              <span className="hidden md:inline">snap-e test</span>
+              <span className="md:hidden">Test</span>
+            </motion.button>
+            <div className="text-left md:text-right">
+              <p className="text-white font-semibold text-base md:text-lg">{filteredInspections.length} Inspections</p>
+              <p className="text-gray-400 text-xs md:text-sm">{viewMode === 'pending' ? 'Pending' : 'All'}</p>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Controls */}
-      <div className="px-4 md:px-8 pb-4 md:pb-6">
-        <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 mb-4 md:mb-6">
+      <AnimatePresence>
+        {showMenu && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="px-4 md:px-8 pb-4 md:pb-6 overflow-hidden"
+          >
+            <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 mb-4 md:mb-6">
           {/* View Mode Toggle */}
           <div className="flex bg-white/10 rounded-lg md:rounded-xl p-1">
             <motion.button
@@ -716,7 +757,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
             </div>
           </motion.div>
         )}
-      </div>
+      </motion.div>
+      )}
+      </AnimatePresence>
 
       {/* Inspections List */}
       <div className="px-4 md:px-8 pb-6 md:pb-8">

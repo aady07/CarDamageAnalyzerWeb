@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   LayoutDashboard, 
   Users, 
@@ -39,22 +39,26 @@ const AdminPanelLayout: React.FC<AdminPanelLayoutProps> = ({
   return (
     <div className="min-h-screen bg-black flex">
       {/* Sidebar */}
-      <motion.aside
-        initial={{ x: sidebarOpen ? 0 : -280 }}
-        animate={{ x: sidebarOpen ? 0 : -280 }}
-        className={`fixed md:static inset-y-0 left-0 z-40 w-64 bg-white/5 backdrop-blur-lg border-r border-white/10 transition-transform duration-300`}
-      >
-        <div className="flex flex-col h-full">
-          {/* Sidebar Header */}
-          <div className="flex items-center justify-between p-4 border-b border-white/10">
-            <h2 className="text-lg font-bold text-white">Admin Panel</h2>
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="md:hidden w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors"
-            >
-              <X className="w-5 h-5 text-gray-400" />
-            </button>
-          </div>
+      <AnimatePresence>
+        {sidebarOpen && (
+          <motion.aside
+            initial={{ x: -280 }}
+            animate={{ x: 0 }}
+            exit={{ x: -280 }}
+            transition={{ duration: 0.3 }}
+            className="fixed inset-y-0 left-0 z-40 w-64 bg-white/5 backdrop-blur-lg border-r border-white/10"
+          >
+            <div className="flex flex-col h-full">
+              {/* Sidebar Header */}
+              <div className="flex items-center justify-between p-4 border-b border-white/10">
+                <h2 className="text-lg font-bold text-white">Admin Panel</h2>
+                <button
+                  onClick={() => setSidebarOpen(false)}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-400" />
+                </button>
+              </div>
 
           {/* Navigation */}
           <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
@@ -95,16 +99,20 @@ const AdminPanelLayout: React.FC<AdminPanelLayoutProps> = ({
             </motion.button>
           </div>
         </div>
-      </motion.aside>
+          </motion.aside>
+        )}
+      </AnimatePresence>
 
-      {/* Mobile Sidebar Toggle */}
+      {/* Sidebar Toggle Button */}
       {!sidebarOpen && (
-        <button
+        <motion.button
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
           onClick={() => setSidebarOpen(true)}
-          className="fixed top-4 left-4 z-30 md:hidden w-10 h-10 bg-white/10 backdrop-blur-lg rounded-lg flex items-center justify-center text-white hover:bg-white/20 transition-colors"
+          className="fixed top-4 left-4 z-30 w-10 h-10 bg-white/10 backdrop-blur-lg rounded-lg flex items-center justify-center text-white hover:bg-white/20 transition-colors"
         >
           <Menu className="w-5 h-5" />
-        </button>
+        </motion.button>
       )}
 
       {/* Main Content */}
