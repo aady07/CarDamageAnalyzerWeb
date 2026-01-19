@@ -741,8 +741,8 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
       analysisIntervalRef.current = null;
     }
 
-    const requiredSuccessCount = 3; // Need 3 consecutive good scores for verification
-    const threshold = 0.32; // 32% alignment score threshold
+    const requiredSuccessCount = 4; // Need 4 consecutive good scores for verification
+    const threshold = 0.27; // 27% alignment score threshold
     const minScoreConsistency = 0.15; // Scores must be within 15% of each other (low variance)
     const maxMotionThreshold = 0.30; // Maximum allowed motion between frames (30%)
 
@@ -770,110 +770,114 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
           return;
         }
         
+        // ML DETECTION COMMENTED OUT - Skip directly to edge detection
         // Check ref first (immediate) and state (for React updates)
-        if (mlApprovedRef.current || mlApproved) {
-          // ML already approved, proceed with edge detection only
-          await runEdgeDetectionCycle();
-          return;
-        }
+        // if (mlApprovedRef.current || mlApproved) {
+        //   // ML already approved, proceed with edge detection only
+        //   await runEdgeDetectionCycle();
+        //   return;
+        // }
         
-        // Step 1: Run ML Inference first
-        if (!mlModelLoaded) {
-          // If ML not loaded, skip to edge detection
-          await runEdgeDetectionCycle();
-          return;
-        }
+        // Step 1: Run ML Inference first - COMMENTED OUT
+        // if (!mlModelLoaded) {
+        //   // If ML not loaded, skip to edge detection
+        //   await runEdgeDetectionCycle();
+        //   return;
+        // }
         
-        if (isMlDetectingRef.current) {
-          // ML inference already running, skip this cycle
-          return;
-        }
+        // if (isMlDetectingRef.current) {
+        //   // ML inference already running, skip this cycle
+        //   return;
+        // }
         
-        const mlResult = await runMLDetection();
-        const mlValid = mlResult.validation.isValid;
-        const mlDetectionsCount = mlResult.detections.length;
-        const currentStencil = stencilImages[currentStencilIndex];
-        const currentPartName = currentStencil?.label || '';
-        const isFront = currentPartName === 'Front View' || currentPartName === 'Front' || currentPartName === 'front';
+        // const mlResult = await runMLDetection();
+        // const mlValid = mlResult.validation.isValid;
+        // const mlDetectionsCount = mlResult.detections.length;
+        // const currentStencil = stencilImages[currentStencilIndex];
+        // const currentPartName = currentStencil?.label || '';
+        // const isFront = currentPartName === 'Front View' || currentPartName === 'Front' || currentPartName === 'front';
         
-        const detectedLabels = mlResult.detections.map(d => d.label);
+        // const detectedLabels = mlResult.detections.map(d => d.label);
         
-        // FRONT PART LOGIC (keep as is)
-        if (isFront) {
-          mlInferenceCountRef.current++;
+        // FRONT PART LOGIC (keep as is) - COMMENTED OUT
+        // if (isFront) {
+        //   mlInferenceCountRef.current++;
           
-          if (mlDetectionsCount === 0) {
-            // No parts detected for Front
-            if (mlInferenceCountRef.current >= 3) {
-              // After 3 ML inferences with no parts → show error
-              console.log('[ML Detection] ⚠️ Front: No parts detected after 3 ML inferences. Showing error...');
-              setShowNoCarDetected(true);
-              setStatus('failed');
-              return;
-            } else {
-              // Retry ML after 500ms
-              mlRetryTimeoutRef.current = setTimeout(() => {
-                runValidationCycle();
-              }, 500);
-              return;
-            }
-          } else if (mlValid) {
-            // Expected parts detected (2 out of 9) → approve and proceed to edge detection
-            console.log(`[ML Detection] ✓ Front: Expected parts detected (${detectedLabels.join(', ')})`);
-            mlApprovedRef.current = true;
-            setMlApproved(true);
-            await runEdgeDetectionCycle();
-            return;
-          } else {
-            // Wrong parts detected for Front
-            wrongPartCounterRef.current++;
-            console.log(`[ML Detection] Front: Wrong parts detected: ${detectedLabels.join(', ')} (counter: ${wrongPartCounterRef.current})`);
+        //   if (mlDetectionsCount === 0) {
+        //     // No parts detected for Front
+        //     if (mlInferenceCountRef.current >= 3) {
+        //       // After 3 ML inferences with no parts → show error
+        //       console.log('[ML Detection] ⚠️ Front: No parts detected after 3 ML inferences. Showing error...');
+        //       setShowNoCarDetected(true);
+        //       setStatus('failed');
+        //       return;
+        //     } else {
+        //       // Retry ML after 500ms
+        //       mlRetryTimeoutRef.current = setTimeout(() => {
+        //         runValidationCycle();
+        //       }, 500);
+        //       return;
+        //     }
+        //   } else if (mlValid) {
+        //     // Expected parts detected (2 out of 9) → approve and proceed to edge detection
+        //     console.log(`[ML Detection] ✓ Front: Expected parts detected (${detectedLabels.join(', ')})`);
+        //     mlApprovedRef.current = true;
+        //     setMlApproved(true);
+        //     await runEdgeDetectionCycle();
+        //     return;
+        //   } else {
+        //     // Wrong parts detected for Front
+        //     wrongPartCounterRef.current++;
+        //     console.log(`[ML Detection] Front: Wrong parts detected: ${detectedLabels.join(', ')} (counter: ${wrongPartCounterRef.current})`);
             
-            if (wrongPartCounterRef.current >= 3) {
-              // Front: If wrong parts detected 3 times → show scan again immediately
-              console.log('[ML Detection] ⚠️ Front: Wrong parts detected 3 times. Showing scan again...');
-              setStatus('failed');
-              return;
-            } else {
-              // Retry ML after 500ms
-              mlRetryTimeoutRef.current = setTimeout(() => {
-                runValidationCycle();
-              }, 500);
-              return;
-            }
-          }
-        }
+        //     if (wrongPartCounterRef.current >= 3) {
+        //       // Front: If wrong parts detected 3 times → show scan again immediately
+        //       console.log('[ML Detection] ⚠️ Front: Wrong parts detected 3 times. Showing scan again...');
+        //       setStatus('failed');
+        //       return;
+        //     } else {
+        //       // Retry ML after 500ms
+        //       mlRetryTimeoutRef.current = setTimeout(() => {
+        //         runValidationCycle();
+        //       }, 500);
+        //       return;
+        //     }
+        //   }
+        // }
         
-        // NON-FRONT PARTS LOGIC (9 parts)
-        else {
-          if (mlDetectionsCount >= 2) {
-            // Any 2 car parts detected (any 2 out of 23) → approve and proceed to edge detection
-            console.log(`[ML Detection] ✓ ${currentPartName}: 2+ parts detected (${detectedLabels.join(', ')}) - approving`);
-            setShowManualCapture(false);
-            showManualCaptureRef.current = false;
-            setShowPartNotDetected(false);
-            mlApprovedRef.current = true;
-            setMlApproved(true);
-            await runEdgeDetectionCycle();
-            return;
-          } else if (mlDetectionsCount === 0) {
-            // No parts detected → show manual capture button (don't run edge detection)
-            console.log(`[ML Detection] ${currentPartName}: No parts detected - showing manual capture button`);
-            setShowManualCapture(true);
-            showManualCaptureRef.current = true;
-            setShowPartNotDetected(true);
-            // Stop validation cycle - wait for user to click manual capture button
-            return;
-          } else {
-            // Only 1 part detected - show manual capture button
-            console.log(`[ML Detection] ${currentPartName}: Only 1 part detected - showing manual capture button`);
-            setShowManualCapture(true);
-            showManualCaptureRef.current = true;
-            setShowPartNotDetected(true);
-            // Stop validation cycle - wait for user to click manual capture button
-            return;
-          }
-        }
+        // NON-FRONT PARTS LOGIC (9 parts) - COMMENTED OUT
+        // else {
+        //   if (mlDetectionsCount >= 2) {
+        //     // Any 2 car parts detected (any 2 out of 23) → approve and proceed to edge detection
+        //     console.log(`[ML Detection] ✓ ${currentPartName}: 2+ parts detected (${detectedLabels.join(', ')}) - approving`);
+        //     setShowManualCapture(false);
+        //     showManualCaptureRef.current = false;
+        //     setShowPartNotDetected(false);
+        //     mlApprovedRef.current = true;
+        //     setMlApproved(true);
+        //     await runEdgeDetectionCycle();
+        //     return;
+        //   } else if (mlDetectionsCount === 0) {
+        //     // No parts detected → show manual capture button (don't run edge detection)
+        //     console.log(`[ML Detection] ${currentPartName}: No parts detected - showing manual capture button`);
+        //     setShowManualCapture(true);
+        //     showManualCaptureRef.current = true;
+        //     setShowPartNotDetected(true);
+        //     // Stop validation cycle - wait for user to click manual capture button
+        //     return;
+        //   } else {
+        //     // Only 1 part detected - show manual capture button
+        //     console.log(`[ML Detection] ${currentPartName}: Only 1 part detected - showing manual capture button`);
+        //     setShowManualCapture(true);
+        //     showManualCaptureRef.current = true;
+        //     setShowPartNotDetected(true);
+        //     // Stop validation cycle - wait for user to click manual capture button
+        //     return;
+        //   }
+        // }
+        
+        // Skip directly to edge detection (ML detection disabled)
+        await runEdgeDetectionCycle();
       };
       
       // Edge detection cycle (runs after ML is approved)
