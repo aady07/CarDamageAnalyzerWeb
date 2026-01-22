@@ -1,18 +1,15 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { motion } from 'framer-motion';
-import { ArrowRight, Shield, Camera, Car, Clock, AlertTriangle, CheckCircle, User } from 'lucide-react';
+import { ArrowRight, Shield, Camera, Car, Clock, AlertTriangle, CheckCircle } from 'lucide-react';
 // UploadLimitsDisplay and useUploadLimitsContext removed in SDK mode
 
 interface RulesScreenProps {
-  onStart: (vehicleDetails: { make: string; model: string; regNumber: string }) => void;
+  vehicleDetails: { regNumber: string } | null;
+  onStart: () => void;
   onBack: () => void;
 }
 
-const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
-  const [showVehicleForm, setShowVehicleForm] = useState(false);
-  const [vehicleMake, setVehicleMake] = useState('');
-  const [vehicleModel, setVehicleModel] = useState('');
-  const [vehicleRegNumber, setVehicleRegNumber] = useState('');
+const RulesScreen: React.FC<RulesScreenProps> = ({ vehicleDetails, onStart, onBack }) => {
   // Upload limits check removed in SDK mode
   const rules = [
     {
@@ -109,7 +106,6 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
 
         {/* Upload Limits Display - Removed in SDK mode */}
 
-
         {/* Action Buttons */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -120,14 +116,30 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            onClick={() => setShowVehicleForm(true)}
-            className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 hover:from-blue-600 hover:to-purple-700"
+            onClick={() => {
+              if (vehicleDetails) {
+                // Clear previous assessment data to prevent mixing old and new claim IDs
+                try {
+                  localStorage.removeItem('claimsByPosition');
+                  localStorage.removeItem('recentClaimIds');
+                } catch (error) {
+                  // Ignore localStorage errors
+                }
+                onStart();
+              } else {
+                console.warn('[RulesScreen] No vehicle details available - cannot start analysis');
+              }
+            }}
+            disabled={!vehicleDetails}
+            className={`w-full font-bold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 ${
+              vehicleDetails
+                ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white hover:from-blue-600 hover:to-purple-700'
+                : 'bg-gray-500/40 text-white/60 cursor-not-allowed'
+            }`}
           >
             <Camera className="w-5 h-5" />
             Start recording with AI analysis
           </motion.button>
-          
-          {/* Upload limit warning - Removed in SDK mode */}
           
           <motion.button
             whileHover={{ scale: 1.02 }}
@@ -138,101 +150,6 @@ const RulesScreen: React.FC<RulesScreenProps> = ({ onStart, onBack }) => {
             Go Back
           </motion.button>
         </motion.div>
-
-        {/* Vehicle Details Modal */}
-        {showVehicleForm && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
-          >
-            <motion.div
-              initial={{ scale: 0.9, y: 10, opacity: 0 }}
-              animate={{ scale: 1, y: 0, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="glass-effect rounded-2xl p-6 w-full max-w-xl"
-            >
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-12 h-12 bg-blue-500/20 rounded-full flex items-center justify-center">
-                  <User className="w-6 h-6 text-blue-400" />
-                </div>
-                <div>
-                  <h2 className="text-white text-xl font-bold">Vehicle Information</h2>
-                  <p className="text-gray-400 text-sm">Please provide your vehicle details to begin analysis.</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <div className="md:col-span-1">
-                  <label className="block text-gray-300 text-sm mb-2">Make *</label>
-                  <input
-                    type="text"
-                    value={vehicleMake}
-                    onChange={(e) => setVehicleMake(e.target.value)}
-                    placeholder="e.g., Toyota"
-                    className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-                  />
-                </div>
-                <div className="md:col-span-1">
-                  <label className="block text-gray-300 text-sm mb-2">Model *</label>
-                  <input
-                    type="text"
-                    value={vehicleModel}
-                    onChange={(e) => setVehicleModel(e.target.value)}
-                    placeholder="e.g., Corolla"
-                    className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-                  />
-                </div>
-                <div className="md:col-span-1">
-                  <label className="block text-gray-300 text-sm mb-2">Registration No.</label>
-                  <input
-                    type="text"
-                    value={vehicleRegNumber}
-                    onChange={(e) => setVehicleRegNumber(e.target.value)}
-                    placeholder="e.g., MH 12 AB 1234"
-                    className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between gap-3">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => setShowVehicleForm(false)}
-                  className="px-4 py-3 rounded-xl bg-white/10 text-white hover:bg-white/20"
-                >
-                  Cancel
-                </motion.button>
-
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => {
-                    if (vehicleMake.trim() && vehicleModel.trim()) {
-                      // Clear previous assessment data to prevent mixing old and new claim IDs
-                      try {
-                        localStorage.removeItem('claimsByPosition');
-                        localStorage.removeItem('recentClaimIds');
-                      } catch (error) {
-                      }
-                      onStart({ make: vehicleMake, model: vehicleModel, regNumber: vehicleRegNumber });
-                    }
-                  }}
-                  disabled={!vehicleMake.trim() || !vehicleModel.trim()}
-                  className={`px-5 py-3 rounded-xl font-semibold ${
-                    !vehicleMake.trim() || !vehicleModel.trim()
-                      ? 'bg-blue-500/40 text-white/60 cursor-not-allowed'
-                      : 'bg-blue-500 hover:bg-blue-600 text-white'
-                  }`}
-                >
-                  Start AI Analysis
-                </motion.button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
       </div>
     </div>
   );

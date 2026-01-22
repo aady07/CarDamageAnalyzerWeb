@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import LandingScreen from './LandingScreen';
 import RulesScreen from './RulesScreen';
@@ -10,7 +10,21 @@ export type ScreenType = 'landing' | 'rules' | 'camera';
 
 const AppContent: React.FC = () => {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('landing');
-  const [vehicleDetails, setVehicleDetails] = useState<{ make: string; model: string; regNumber: string } | null>(null);
+  const [vehicleDetails, setVehicleDetails] = useState<{ regNumber: string } | null>(null);
+
+  // Read car registration number from URL parameters on mount
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const regNumber = urlParams.get('regNumber');
+
+    if (regNumber) {
+      // Registration number provided via URL - set it immediately
+      setVehicleDetails({
+        regNumber: regNumber
+      });
+      console.log('[AppContent] Registration number loaded from URL:', regNumber);
+    }
+  }, []);
 
   // SDK Mode: No auth checks needed
   const navigateTo = (screen: ScreenType) => {
@@ -45,9 +59,16 @@ const AppContent: React.FC = () => {
             transition={{ duration: 0.5 }}
           >
             <RulesScreen 
-              onStart={(details) => {
-                setVehicleDetails(details);
-                navigateTo('camera');
+              vehicleDetails={vehicleDetails}
+              onStart={() => {
+                // If vehicleDetails already set from URL, go directly to camera
+                if (vehicleDetails) {
+                  navigateTo('camera');
+                } else {
+                  // Fallback: if no URL params, still allow manual entry (backward compatibility)
+                  // But we removed the modal, so this shouldn't happen
+                  console.warn('[AppContent] No vehicle details found - cannot proceed to camera');
+                }
               }}
               onBack={() => navigateTo('landing')}
             />

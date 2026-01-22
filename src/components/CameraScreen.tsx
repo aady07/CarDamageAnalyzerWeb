@@ -13,7 +13,7 @@ import { tfliteDetectionService, Detection } from '../services/tfliteDetection';
 
 
 interface CameraScreenProps {
-  vehicleDetails: { make: string; model: string; regNumber: string } | null;
+  vehicleDetails: { regNumber: string } | null;
   onComplete: () => void;
   onBack: () => void;
 }
@@ -1379,11 +1379,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ vehicleDetails, onComplete,
           registrationNumber: vehicleDetails.regNumber,
         sessionType: sessionType,
           clientName: "SNAPCABS",
-        images: imageReferences,
-        vehicleDetails: {
-          make: vehicleDetails.make,
-          model: vehicleDetails.model
-        }
+        images: imageReferences
       };
 
       console.log('[Android] Pending inspection data:', JSON.stringify(pendingInspectionData, null, 2));
