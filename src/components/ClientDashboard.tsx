@@ -630,7 +630,7 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
               <p className="text-gray-400 text-xs md:text-sm">View all inspections from your drivers and head users</p>
             </div>
           </div>
-          <div className="text-left md:text-right flex-shrink-0">
+          <div className="text-left md:text-right flex-shrink-0 flex flex-col md:flex-row items-end md:items-center gap-2 md:gap-4">
             {dashboardData && (
               <>
                 <p className="text-white font-semibold text-sm md:text-base">{dashboardData.summary.totalCars} Cars</p>
@@ -698,7 +698,7 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
       {/* Summary Cards */}
       {dashboardData && dashboardData.summary && (
         <div className="px-4 md:px-8 pb-6 md:pb-8">
-          <div className={`grid ${clientName === 'REFUX' ? 'grid-cols-2 md:grid-cols-2' : 'grid-cols-2 md:grid-cols-5'} gap-4 md:gap-6 mb-6 md:mb-8`}>
+          <div className={`grid ${(clientName === 'REFUX' || clientName === 'SNAPCABS') ? 'grid-cols-2 md:grid-cols-2' : 'grid-cols-2 md:grid-cols-5'} gap-4 md:gap-6 mb-6 md:mb-8`}>
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -724,7 +724,7 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                   </div>
                   <h3 className="text-gray-400 text-xs md:text-sm mb-1 md:mb-2">Morning Done</h3>
                   <p className="text-white font-bold text-xl md:text-3xl">
-                    {clientName === 'REFUX' && dashboardData.cars
+                    {(clientName === 'REFUX' || clientName === 'SNAPCABS') && dashboardData.cars
                       ? calculateRefuxSummary(dashboardData.cars).morningDone
                       : dashboardData.summary.morningDone}
                   </p>
@@ -741,41 +741,11 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                   </div>
                   <h3 className="text-gray-400 text-xs md:text-sm mb-1 md:mb-2">Evening Done</h3>
                   <p className="text-white font-bold text-xl md:text-3xl">
-                    {clientName === 'REFUX' && dashboardData.cars
+                    {(clientName === 'REFUX' || clientName === 'SNAPCABS') && dashboardData.cars
                       ? calculateRefuxSummary(dashboardData.cars).eveningDone
                       : dashboardData.summary.eveningDone}
                   </p>
                 </motion.div>
-
-                {clientName === 'SNAPCABS' && (
-                  <>
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.3 }}
-                  className="bg-white/10 backdrop-blur-lg rounded-xl md:rounded-2xl p-4 md:p-6 border border-white/20 text-center"
-                >
-                  <div className="w-12 h-12 md:w-16 md:h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
-                    <CheckCircle className="w-6 h-6 md:w-8 md:h-8 text-green-400" />
-                  </div>
-                  <h3 className="text-gray-400 text-xs md:text-sm mb-1 md:mb-2">Both Complete</h3>
-                  <p className="text-white font-bold text-xl md:text-3xl">{dashboardData.summary.bothDone}</p>
-                </motion.div>
-
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 }}
-                  className="bg-white/10 backdrop-blur-lg rounded-xl md:rounded-2xl p-4 md:p-6 border border-white/20 text-center"
-                >
-                  <div className="w-12 h-12 md:w-16 md:h-16 bg-yellow-500/20 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
-                    <Clock className="w-6 h-6 md:w-8 md:h-8 text-yellow-400" />
-                  </div>
-                  <h3 className="text-gray-400 text-xs md:text-sm mb-1 md:mb-2">Pending</h3>
-                  <p className="text-white font-bold text-xl md:text-3xl">{dashboardData.summary.pending}</p>
-                </motion.div>
-                  </>
-                )}
               </>
             )}
           </div>
@@ -799,38 +769,29 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                 <table className="w-full">
                   <thead className="bg-white/5 border-b border-white/10">
                     <tr>
-                      <th className={`px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider ${clientName === 'REFUX' ? 'px-2 md:px-4' : ''}`}>Car Number</th>
-                      <th className={`px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider ${clientName === 'REFUX' ? 'px-2 md:px-4' : ''}`}>Inspection ID</th>
+                      <th className={`px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider ${(clientName === 'REFUX' || clientName === 'SNAPCABS') ? 'px-2 md:px-4' : ''}`}>Car Number</th>
+                      <th className={`px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider ${(clientName === 'REFUX' || clientName === 'SNAPCABS') ? 'px-2 md:px-4' : ''}`}>Inspection ID</th>
                       <th className={`px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider ${
-                        clientName === 'REFUX' 
-                          ? 'hidden md:table-cell px-2 md:px-4' 
-                          : clientName === 'SNAPCABS' 
-                          ? '' 
+                        (clientName === 'REFUX' || clientName === 'SNAPCABS')
+                          ? 'hidden md:table-cell px-2 md:px-4'
                           : 'hidden md:table-cell'
                       }`}>Created By</th>
-                      {clientName === 'REFUX' ? (
+                      {(clientName === 'REFUX' || clientName === 'SNAPCABS') ? (
                         <th className="px-2 md:px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider hidden sm:table-cell">Inspections</th>
-                      ) : clientName === 'SNAPCABS' ? (
-                        <>
-                          <th className="px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider">MORNING</th>
-                          <th className="px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider">EVENING</th>
-                        </>
                       ) : null}
                       <th className={`px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider ${
-                        clientName === 'REFUX' 
-                          ? 'hidden sm:table-cell px-2 md:px-4' 
-                          : clientName === 'SNAPCABS' 
-                          ? '' 
+                        (clientName === 'REFUX' || clientName === 'SNAPCABS')
+                          ? 'hidden sm:table-cell px-2 md:px-4'
                           : 'hidden md:table-cell'
                       }`}>Status</th>
-                      <th className={`px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider ${clientName === 'REFUX' ? 'px-2 md:px-4' : ''}`}>PDF</th>
+                      <th className={`px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider ${(clientName === 'REFUX' || clientName === 'SNAPCABS') ? 'px-2 md:px-4' : ''}`}>Dashboard</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/10">
                     <AnimatePresence>
                       {(() => {
-                        // For REFUX, group by carNumber and show one row per car
-                        if (clientName === 'REFUX' && dashboardData.cars) {
+                        // For REFUX and SNAPCABS, use same layout: group by carNumber, Inspection Dashboard per inspection
+                        if ((clientName === 'REFUX' || clientName === 'SNAPCABS') && dashboardData.cars) {
                           // Separate complete and processing inspections
                           const sortedCars = sortRefuxCars(dashboardData.cars);
                           const groupedCars = groupRefuxInspectionsByCar(sortedCars);

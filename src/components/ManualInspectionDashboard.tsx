@@ -299,6 +299,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   const [sortBy, setSortBy] = useState<'createdAt' | 'carNumber' | 'status'>('createdAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [clientFilter, setClientFilter] = useState<string>(''); // '' = All, SNAPCABS, REFUX, etc.
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [debouncedSearch, setDebouncedSearch] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -558,7 +559,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
     if (hasAccess) {
       fetchPendingImages();
     }
-  }, [sortBy, sortOrder, statusFilter, debouncedSearch, currentPage, pageSize]);
+  }, [sortBy, sortOrder, statusFilter, clientFilter, debouncedSearch, currentPage, pageSize]);
 
   // Keep polling ref in sync with currentPage
   useEffect(() => {
@@ -638,6 +639,9 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
       };
       if (statusFilter !== 'all') {
         params.status = statusFilter;
+      }
+      if (clientFilter) {
+        params.clientName = clientFilter;
       }
       if (debouncedSearch) {
         params.search = debouncedSearch;
@@ -2735,6 +2739,32 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
     return imageType.charAt(0).toUpperCase() + imageType.slice(1).replace(/([A-Z])/g, ' $1');
   };
 
+  /** Banner for client + first/second today + evening missing. Use at top of image card and review header. */
+  const renderImageContextBanner = (img: InspectionImage) => {
+    const client = img.clientInfo?.clientDisplayName ?? img.clientName ?? '';
+    const todayLabel = img.inspectionTodayInfo?.label ?? null;
+    const eveningMissing = img.sessionInfo?.isEveningMissing === true;
+    const parts: string[] = [];
+    if (client) parts.push(client);
+    if (todayLabel) parts.push(todayLabel);
+    if (eveningMissing) parts.push('Evening missing');
+    if (parts.length === 0) return null;
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-white/90 bg-white/10 border border-white/20 rounded-lg px-3 py-2 mb-3">
+        {parts.map((p, i) => (
+          <span key={i}>
+            {i > 0 && <span className="text-white/50 mx-1.5">•</span>}
+            {p === 'Evening missing' ? (
+              <span className="text-amber-300">{p}</span>
+            ) : (
+              <span>{p}</span>
+            )}
+          </span>
+        ))}
+      </div>
+    );
+  };
+
   const formatLockTime = (lockedAt: string) => {
     const date = new Date(lockedAt);
     const now = new Date();
@@ -2906,6 +2936,8 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
               </motion.button>
             </div>
           </div>
+          {/* Context banner: client + first/second today + evening missing */}
+          {renderImageContextBanner(selectedImage)}
         </div>
 
         {/* Main Content - New 2-Column Layout */}
@@ -3899,6 +3931,34 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
             )}
           </div>
 
+          {/* Client Filter - top-level filter for pending images */}
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-gray-400 text-sm font-medium">Client:</span>
+            {[
+              { value: '', label: 'All' },
+              { value: 'SNAPCABS', label: 'SNAPCABS' },
+              { value: 'REFUX', label: 'REFUX' },
+              { value: 'ECO MOBILITY', label: 'ECO MOBILITY' }
+            ].map(({ value, label }) => (
+              <motion.button
+                key={value || 'all'}
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => {
+                  setClientFilter(value);
+                  setCurrentPage(1);
+                }}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                  clientFilter === value
+                    ? 'bg-blue-500 text-white border border-blue-400'
+                    : 'bg-white/10 border border-white/20 text-white hover:bg-white/20'
+                }`}
+              >
+                {label}
+              </motion.button>
+            ))}
+          </div>
+
           {/* Filters Row */}
           <div className="flex flex-wrap gap-4 items-center">
             {/* Sort By */}
@@ -4316,6 +4376,8 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                     }
                   }}
                 >
+                  {/* Context banner: client + first/second today + evening missing */}
+                  {renderImageContextBanner(image)}
                   {/* Checkbox for selection */}
                   <div 
                     className="absolute top-2 left-2 z-10"

@@ -400,7 +400,10 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <ClientDashboard onBack={() => navigateTo('landing')} clientName="SNAPCABS" />
+            <ClientDashboard
+              onBack={() => navigateTo('landing')}
+              clientName="SNAPCABS"
+            />
           </motion.div>
         )}
 
@@ -412,7 +415,10 @@ const AppContent: React.FC<AppContentProps> = ({ isAuthed, needsAuth, onLogout, 
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <ClientDashboard onBack={() => navigateTo('landing')} clientName="REFUX" />
+            <ClientDashboard
+              onBack={() => navigateTo('landing')}
+              clientName="REFUX"
+            />
           </motion.div>
         )}
 
