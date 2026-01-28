@@ -150,7 +150,7 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
       // First check if ready
       const readiness = await checkInspectionReadiness(inspectionId);
       if (!readiness.ready) {
-        setError(readiness.message || 'Inspection is not ready for dashboard display.');
+        setError('Inspection is not ready.');
         setLoading(false);
         return;
       }
