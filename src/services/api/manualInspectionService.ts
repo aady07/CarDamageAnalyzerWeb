@@ -27,6 +27,35 @@ export interface LockInfo {
   isCurrentUser: boolean;
 }
 
+/** Client metadata for UI (badges, filters, etc.) */
+export interface ClientInfo {
+  clientId: string; // "SNAPCABS" | "REFUX" | "REGULAR" | etc.
+  clientDisplayName: string; // e.g. "Snap-E CABS", "Refex Mobility"
+  isSnapcabs: boolean;
+  isRefux: boolean;
+  maxImages: number;
+  maxImagesPerSession: number | null;
+  hasSessions: boolean;
+  clientType: 'session-based' | 'daily' | 'regular';
+}
+
+/** First vs second submission today for that car */
+export interface InspectionTodayInfo {
+  totalInspectionsToday: number;
+  submissionIndexToday: number; // 1-based
+  isFirstSubmissionToday: boolean;
+  isSecondSubmissionToday: boolean;
+  label: string; // e.g. "First submission today", "Second submission today"
+}
+
+/** Session info (SNAPCABS only, else null) */
+export interface SessionInfo {
+  sessionType: 'MORNING' | 'EVENING';
+  morningImageCount: number;
+  eveningImageCount: number;
+  isEveningMissing: boolean;
+}
+
 export interface InspectionImage {
   id: number;
   imageUrl: string; // S3 URL (direct access may cause 403)
@@ -41,6 +70,9 @@ export interface InspectionImage {
   inspectionId: number;
   carNumber: string;
   clientName: string;
+  clientInfo?: ClientInfo;
+  inspectionTodayInfo?: InspectionTodayInfo;
+  sessionInfo?: SessionInfo | null;
   // AI Processing Data
   aiProcessed?: boolean; // true if AI processing completed
   aiProcessingStatus?: 'processing' | 'completed' | 'error'; // AI processing status
