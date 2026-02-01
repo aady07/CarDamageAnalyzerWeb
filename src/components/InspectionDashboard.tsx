@@ -61,26 +61,33 @@ const ImageModal: React.FC<ImageModalProps> = ({ imageUrl, alt, onClose }) => {
 };
 
 
-// Parse AI1 comment to extract damage detection and logo
-// Format: "Damage Detection: No damage Logo: No"
-const parseAIComment = (comment: string | undefined): { damageDetection: string; logo: string } => {
+// Parse AI1 comment to extract damage detection, logo (or Type for SNAPCABS)
+// Format: "Damage Detection: No damage Logo: No" or "Damage Detection: No damage Type: Major"
+const parseAIComment = (comment: string | undefined): { damageDetection: string; logo: string; type?: string } => {
   const result = {
     damageDetection: 'NA',
-    logo: 'No'
+    logo: 'No',
+    type: undefined as string | undefined
   };
 
   if (!comment) return result;
 
-  // Extract "Damage Detection: {value}" - everything after "Damage Detection:" until "Logo:"
-  const damageMatch = comment.match(/Damage Detection:\s*([^L]+?)(?:\s+Logo:|$)/i);
+  // Extract "Damage Detection: {value}" or "Dent/Damage: {value}" (SNAPCABS)
+  const damageMatch = comment.match(/(?:Damage Detection|Dent\/Damage):\s*([^LT]+?)(?:\s+Logo:|\s+Type:|$)/i);
   if (damageMatch && damageMatch[1]) {
     result.damageDetection = damageMatch[1].trim();
   }
 
-  // Extract "Logo: {yes/no}"
+  // Extract "Logo: {yes/no}" (for non-SNAPCABS)
   const logoMatch = comment.match(/Logo:\s*(yes|no)/i);
   if (logoMatch && logoMatch[1]) {
     result.logo = logoMatch[1].trim();
+  }
+
+  // Extract "Type: {Major/Minor}" (for SNAPCABS)
+  const typeMatch = comment.match(/Type:\s*(Major|Minor)/i);
+  if (typeMatch && typeMatch[1]) {
+    result.type = typeMatch[1].trim();
   }
 
   return result;
@@ -343,6 +350,7 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
   if (!dashboardData) return null;
 
   const { inspection, images } = dashboardData;
+  const isSnapcabs = inspection.clientName === 'SNAPCABS';
 
   // Parse all AI comments and calculate summary stats
   const parsedImages = images.map((image, index) => {
@@ -370,10 +378,11 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
     const hasScratch = hasDamage && damageLower.includes('scratch');
     const hasGeneralDamage = hasDamage && !hasDent && !hasScratch;
     
-    // Logo check only for first 10 images
+    // Logo/Type check only for first 10 images
+    // SNAPCABS: Type Major = hasLogo, Type Minor = hasNoLogo. Others: Logo Yes = hasLogo, Logo No = hasNoLogo
     const isFirst10 = index < 10;
-    const hasLogo = isFirst10 && parsed.logo.toLowerCase() === 'yes';
-    const hasNoLogo = isFirst10 && parsed.logo.toLowerCase() === 'no';
+    const hasLogo = isFirst10 && (isSnapcabs ? parsed.type?.toLowerCase() === 'major' : parsed.logo.toLowerCase() === 'yes');
+    const hasNoLogo = isFirst10 && (isSnapcabs ? parsed.type?.toLowerCase() === 'minor' : parsed.logo.toLowerCase() === 'no');
     
     return {
       image,
@@ -485,7 +494,7 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
                 <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-purple-400 flex-shrink-0" />
                 <p className="text-gray-400 text-xs sm:text-sm">Client</p>
               </div>
-              <p className="text-white font-bold text-base sm:text-lg">Refex Mobility</p>
+              <p className="text-white font-bold text-base sm:text-lg">{inspection.clientDisplayName || inspection.clientName || 'N/A'}</p>
             </div>
             <div className="bg-white/5 rounded-lg sm:rounded-xl p-3 sm:p-4">
               <div className="flex items-center gap-2 sm:gap-3 mb-2">
@@ -549,7 +558,8 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
               </div>
             </div>
 
-            {/* Right Side: Other Items */}
+            {/* Right Side: Other Items - Hidden for SNAPCABS (they use Type Major/Minor instead of Logo) */}
+            {!isSnapcabs && (
             <div className="space-y-3 sm:space-y-4">
               <h3 className="text-base sm:text-lg font-bold text-white mb-3 sm:mb-4">Other Items</h3>
               <div className="grid grid-cols-2 gap-3 sm:gap-4">
@@ -608,6 +618,7 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
                 </div>
               </div>
             </div>
+            )}
           </div>
 
           {/* Damage Parts Navigation - Hidden by default, shown when clicked */}
@@ -674,8 +685,8 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
             </AnimatePresence>
           )}
           
-          {/* Parts without Logo Navigation - Hidden by default, shown when clicked */}
-          {showNavigation.logo && partsWithoutLogo.length > 0 && (
+          {/* Parts without Logo Navigation - Hidden for SNAPCABS, shown for other clients */}
+          {!isSnapcabs && showNavigation.logo && partsWithoutLogo.length > 0 && (
             <AnimatePresence>
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
@@ -764,32 +775,56 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
                 <div className="mb-4 sm:mb-6">
                   <h2 className="text-xl sm:text-2xl font-bold text-white mb-3 sm:mb-4 break-words">{partName}</h2>
                   
-                  {/* Badges for first 10 parts */}
+                  {/* Badges for first 10 parts - SNAPCABS: Type first, then Dent/Damage, then New dent/damage */}
                   {isFirst10Parts && (
                     <div className="flex flex-wrap gap-2 sm:gap-3 mb-3 sm:mb-4">
-                      {/* Major Dent/Damage */}
-                      <div className={`${
-                        (() => {
-                          const damageLower = parsedComment.damageDetection.toLowerCase();
-                          const isNoDamage = damageLower === 'no damage' || damageLower === 'na' || damageLower.trim() === '';
-                          const isDentOrScratch = item.hasDent || item.hasScratch;
-                          // Blue for: no damage, dent, or scratch
-                          // Red for: general damage (has damage but not dent/scratch)
-                          return isNoDamage || isDentOrScratch
-                            ? 'bg-blue-500/20 border-blue-500/50 text-blue-400'
-                            : 'bg-red-500/20 border-red-500/50 text-red-400';
-                        })()
-                      } border px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm break-words`}>
-                        Major Dent/Damage: {parsedComment.damageDetection}
-                      </div>
-                      {/* Logo */}
-                      <div className={`${parsedComment.logo === 'yes' ? 'bg-blue-500/20 border-blue-500/50 text-blue-400' : 'bg-gray-500/20 border-gray-500/50 text-gray-400'} border px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm`}>
-                        Logo: {parsedComment.logo.toUpperCase()}
-                      </div>
-                      {/* New dent/damage (increment comment) */}
-                      <div className="bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm break-words">
-                        New dent/damage: {incrementComment}
-                      </div>
+                      {isSnapcabs ? (
+                        <>
+                          {/* SNAPCABS order: Type first */}
+                          <div className={`${parsedComment.type?.toLowerCase() === 'major' ? 'bg-blue-500/20 border-blue-500/50 text-blue-400' : 'bg-gray-500/20 border-gray-500/50 text-gray-400'} border px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm`}>
+                            Type: {parsedComment.type || 'Minor'}
+                          </div>
+                          {/* Dent/Damage (no "Major" for SNAPCABS) */}
+                          <div className={`${
+                            (() => {
+                              const damageLower = parsedComment.damageDetection.toLowerCase();
+                              const isNoDamage = damageLower === 'no damage' || damageLower === 'na' || damageLower.trim() === '';
+                              const isDentOrScratch = item.hasDent || item.hasScratch;
+                              return isNoDamage || isDentOrScratch
+                                ? 'bg-blue-500/20 border-blue-500/50 text-blue-400'
+                                : 'bg-red-500/20 border-red-500/50 text-red-400';
+                            })()
+                          } border px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm break-words`}>
+                            Dent/Damage: {parsedComment.damageDetection}
+                          </div>
+                          {/* New dent/damage */}
+                          <div className="bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm break-words">
+                            New dent/damage: {incrementComment}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          {/* Others: Major Dent/Damage, Logo, New dent/damage */}
+                          <div className={`${
+                            (() => {
+                              const damageLower = parsedComment.damageDetection.toLowerCase();
+                              const isNoDamage = damageLower === 'no damage' || damageLower === 'na' || damageLower.trim() === '';
+                              const isDentOrScratch = item.hasDent || item.hasScratch;
+                              return isNoDamage || isDentOrScratch
+                                ? 'bg-blue-500/20 border-blue-500/50 text-blue-400'
+                                : 'bg-red-500/20 border-red-500/50 text-red-400';
+                            })()
+                          } border px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm break-words`}>
+                            Major Dent/Damage: {parsedComment.damageDetection}
+                          </div>
+                          <div className={`${parsedComment.logo === 'yes' ? 'bg-blue-500/20 border-blue-500/50 text-blue-400' : 'bg-gray-500/20 border-gray-500/50 text-gray-400'} border px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm`}>
+                            Logo: {parsedComment.logo.toUpperCase()}
+                          </div>
+                          <div className="bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm break-words">
+                            New dent/damage: {incrementComment}
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
 
