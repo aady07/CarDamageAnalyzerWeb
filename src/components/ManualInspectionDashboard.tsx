@@ -349,7 +349,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   // Dropdown values for original image comments (based on image position 1-14)
   const [originalImageDropdowns, setOriginalImageDropdowns] = useState<{
     logo?: 'Yes' | 'No';
-    type?: 'Major' | 'Minor'; // SNAPCABS only: replaces Logo
+    type?: 'Major' | 'Minor' | 'None'; // SNAPCABS only: replaces Logo
     damageDetection?: 'No damage' | 'Damage' | 'Dent' | 'Scratch';
     frontFloor?: 'Clean' | 'Dirty';
     tissue?: 'Yes' | 'No';
@@ -444,8 +444,8 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
     if (dropdowns.damageDetection) {
       parts.push(isSnapcabs ? `Dent/Damage: ${dropdowns.damageDetection}` : `Damage Detection: ${dropdowns.damageDetection}`);
     }
-    // SNAPCABS: Type (Major/Minor). Others: Logo (Yes/No)
-    if (isSnapcabs && dropdowns.type) {
+    // SNAPCABS: Type (Major/Minor/None). Others: Logo (Yes/No)
+    if (isSnapcabs && dropdowns.type && dropdowns.type !== 'None') {
       parts.push(`Type: ${dropdowns.type}`);
     } else if (!isSnapcabs && dropdowns.logo) {
       parts.push(`Logo: ${dropdowns.logo}`);
@@ -809,13 +809,14 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
     
     // Parse existing ai1 comment to populate dropdowns
     const existingAi1 = image.imageComments?.ai1 || '';
-    const typeMatch = existingAi1.match(/Type:\s*(Major|Minor)/i);
+    const typeMatch = existingAi1.match(/Type:\s*(Major|Minor|None)/i);
     const logoMatch = existingAi1.match(/Logo:\s*(Yes|No)/i);
     const damageMatch = existingAi1.match(/(?:Damage Detection|Dent\/Damage):\s*([^\n]+?)(?:\s+Type:|\s+Logo:|\s+Front Floor:|$)/i);
     
     if (dropdownOptions.showLogo) {
       if (isSnapcabsImage) {
-        initialDropdowns.type = typeMatch?.[1] === 'Major' ? 'Major' : 'Minor';
+        const typeVal = typeMatch?.[1]?.toLowerCase();
+        initialDropdowns.type = (typeVal === 'major' ? 'Major' : typeVal === 'minor' ? 'Minor' : 'None') as 'Major' | 'Minor' | 'None';
       } else {
         initialDropdowns.logo = logoMatch?.[1]?.toLowerCase() === 'yes' ? 'Yes' : 'No';
       }
@@ -3454,6 +3455,17 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                           <>
                             <label className="text-gray-400 text-xs mb-1 block">Type</label>
                             <div className="flex gap-3">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="type"
+                                  value="None"
+                                  checked={originalImageDropdowns.type === 'None' || !originalImageDropdowns.type}
+                                  onChange={() => setOriginalImageDropdowns(prev => ({ ...prev, type: 'None' as const }))}
+                                  className="w-4 h-4 text-blue-500"
+                                />
+                                <span className="text-white text-sm">None</span>
+                              </label>
                               <label className="flex items-center gap-2 cursor-pointer">
                                 <input
                                   type="radio"
