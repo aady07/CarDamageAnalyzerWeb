@@ -73,7 +73,8 @@ const parseAIComment = (comment: string | undefined): { damageDetection: string;
   if (!comment) return result;
 
   // Extract "Damage Detection: {value}" or "Dent/Damage: {value}" (SNAPCABS)
-  const damageMatch = comment.match(/(?:Damage Detection|Dent\/Damage):\s*([^LT]+?)(?:\s+Logo:|\s+Type:|$)/i);
+  // Value can be "No damage", "Scratch", "Dent", "Damage" - must not use [^LT] as it excludes T (breaks Scratch, Dent)
+  const damageMatch = comment.match(/(?:Damage Detection|Dent\/Damage):\s*([^\n]+?)(?=\s*(?:\n|Type:|Logo:)|$)/i);
   if (damageMatch && damageMatch[1]) {
     result.damageDetection = damageMatch[1].trim();
   }
@@ -84,8 +85,8 @@ const parseAIComment = (comment: string | undefined): { damageDetection: string;
     result.logo = logoMatch[1].trim();
   }
 
-  // Extract "Type: {Major/Minor}" (for SNAPCABS)
-  const typeMatch = comment.match(/Type:\s*(Major|Minor)/i);
+  // Extract "Type: {Major/Minor/None}" (for SNAPCABS)
+  const typeMatch = comment.match(/Type:\s*(Major|Minor|None)/i);
   if (typeMatch && typeMatch[1]) {
     result.type = typeMatch[1].trim();
   }
@@ -352,11 +353,21 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
   const { inspection, images } = dashboardData;
   const isSnapcabs = inspection.clientName === 'SNAPCABS';
 
+  // SNAPCABS: Display images in specific order (front, right_front_fender, right_front_door, right_rear_door, right_rear_fender, rear, left_rear_fender, left_rear_door, left_front_door, left_front_fender)
+  const SNAPCABS_IMAGE_ORDER = ['front', 'right_front_fender', 'right_front_door', 'right_rear_door', 'right_rear_fender', 'rear', 'left_rear_fender', 'left_rear_door', 'left_front_door', 'left_front_fender'];
+  const sortedImages = isSnapcabs
+    ? [...images].sort((a, b) => {
+        const aIdx = SNAPCABS_IMAGE_ORDER.indexOf(a.imageType);
+        const bIdx = SNAPCABS_IMAGE_ORDER.indexOf(b.imageType);
+        return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+      })
+    : images;
+
   // Parse all AI comments and calculate summary stats
-  const parsedImages = images.map((image, index) => {
+  const parsedImages = sortedImages.map((image, index) => {
     const parsed = parseAIComment(image.comments.ai1);
     const incrementComment = image.comments.increment || 'NA';
-    const isLast4Parts = index >= images.length - 4;
+    const isLast4Parts = index >= sortedImages.length - 4;
     const processedComment = image.comments.ai1 || '';
     
     // Extract floor dirt, tissue, and bottle from last 4 parts processed comments
@@ -781,8 +792,8 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
                       {isSnapcabs ? (
                         <>
                           {/* SNAPCABS order: Type first */}
-                          <div className={`${parsedComment.type?.toLowerCase() === 'major' ? 'bg-blue-500/20 border-blue-500/50 text-blue-400' : 'bg-gray-500/20 border-gray-500/50 text-gray-400'} border px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm`}>
-                            Type: {parsedComment.type || 'Minor'}
+                          <div className={`${parsedComment.type?.toLowerCase() === 'major' ? 'bg-blue-500/20 border-blue-500/50 text-blue-400' : parsedComment.type?.toLowerCase() === 'minor' ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400' : 'bg-gray-500/20 border-gray-500/50 text-gray-400'} border px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm`}>
+                            Type: {parsedComment.type || 'None'}
                           </div>
                           {/* Dent/Damage (no "Major" for SNAPCABS) */}
                           <div className={`${
