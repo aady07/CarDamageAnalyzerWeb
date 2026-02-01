@@ -349,6 +349,7 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   // Dropdown values for original image comments (based on image position 1-14)
   const [originalImageDropdowns, setOriginalImageDropdowns] = useState<{
     logo?: 'Yes' | 'No';
+    type?: 'Major' | 'Minor'; // SNAPCABS only: replaces Logo
     damageDetection?: 'No damage' | 'Damage' | 'Dent' | 'Scratch';
     frontFloor?: 'Clean' | 'Dirty';
     tissue?: 'Yes' | 'No';
@@ -436,15 +437,17 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
   };
 
   // Format AI image comment from dropdown values
-  const formatAIComment = (dropdowns: typeof originalImageDropdowns): string => {
+  const formatAIComment = (dropdowns: typeof originalImageDropdowns, isSnapcabs: boolean): string => {
     const parts: string[] = [];
     
-    // Always include Damage Detection if available
+    // SNAPCABS: save as "Dent/Damage" (no "Major"). Others: "Damage Detection"
     if (dropdowns.damageDetection) {
-      parts.push(`Damage Detection: ${dropdowns.damageDetection}`);
+      parts.push(isSnapcabs ? `Dent/Damage: ${dropdowns.damageDetection}` : `Damage Detection: ${dropdowns.damageDetection}`);
     }
-    // Always include Logo if available (including "No")
-    if (dropdowns.logo) {
+    // SNAPCABS: Type (Major/Minor). Others: Logo (Yes/No)
+    if (isSnapcabs && dropdowns.type) {
+      parts.push(`Type: ${dropdowns.type}`);
+    } else if (!isSnapcabs && dropdowns.logo) {
       parts.push(`Logo: ${dropdowns.logo}`);
     }
     // For other fields (Front Floor, Tissue, Rear Floor, Bottle), include if set
@@ -501,14 +504,6 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
         if (response.hasAccess) {
           setHasAccess(true);
     fetchPendingImages();
-    
-    // Poll every 30 seconds for new images (only when on page 1)
-    pollingIntervalRef.current = setInterval(() => {
-      // Only poll for new images if we're on page 1
-      if (currentPageForPollingRef.current === 1) {
-        fetchPendingImages(true, 1);
-      }
-    }, 30000);
           
           // Lock status polling will be set up after first fetch
         } else {
@@ -560,6 +555,38 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
       fetchPendingImages();
     }
   }, [sortBy, sortOrder, statusFilter, clientFilter, debouncedSearch, currentPage, pageSize]);
+
+  // Poll every 30 seconds for new images - ONLY when "All" clients is selected (clientFilter is empty)
+  // When a specific client (SNAPCABS, REFUX, ECO MOBILITY) is selected, stop polling so view doesn't refresh
+  useEffect(() => {
+    if (!hasAccess || clientFilter) {
+      // Clear polling when a specific client is selected
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      return;
+    }
+    pollingIntervalRef.current = setInterval(() => {
+      if (currentPageForPollingRef.current === 1) {
+        fetchPendingImages(true, 1);
+      }
+    }, 30000);
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, [hasAccess, clientFilter]);
+
+  // Clear lock status (10-second) polling when a specific client is selected
+  useEffect(() => {
+    if (clientFilter && lockStatusPollingRef.current) {
+      clearInterval(lockStatusPollingRef.current);
+      lockStatusPollingRef.current = null;
+    }
+  }, [clientFilter]);
 
   // Keep polling ref in sync with currentPage
   useEffect(() => {
@@ -671,13 +698,13 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
         }
         
         // Set up instant polling only on page 1 (for new image detection)
-        // Clear existing polling if we're not on page 1
+        // Don't poll when a specific client is selected - only when "All" is selected
         if (lockStatusPollingRef.current) {
           clearInterval(lockStatusPollingRef.current);
           lockStatusPollingRef.current = null;
         }
-        // Only start instant polling if we're on page 1
-        if (currentPageForPollingRef.current === 1 && !lockStatusPollingRef.current && response.images.length > 0) {
+        // Only start instant polling if we're on page 1, have images, and "All" clients is selected
+        if (currentPageForPollingRef.current === 1 && !lockStatusPollingRef.current && response.images.length > 0 && !clientFilter) {
           lockStatusPollingRef.current = setInterval(() => {
             // Check current page from ref (always up-to-date)
             if (currentPageForPollingRef.current === 1) {
@@ -777,12 +804,27 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
     
     // Initialize dropdown values with defaults based on image position
     const dropdownOptions = getDropdownOptionsForImage(image.processingOrder);
+    const isSnapcabsImage = image.clientName === 'SNAPCABS';
     const initialDropdowns: typeof originalImageDropdowns = {};
+    
+    // Parse existing ai1 comment to populate dropdowns
+    const existingAi1 = image.imageComments?.ai1 || '';
+    const typeMatch = existingAi1.match(/Type:\s*(Major|Minor)/i);
+    const logoMatch = existingAi1.match(/Logo:\s*(Yes|No)/i);
+    const damageMatch = existingAi1.match(/(?:Damage Detection|Dent\/Damage):\s*([^\n]+?)(?:\s+Type:|\s+Logo:|\s+Front Floor:|$)/i);
+    
     if (dropdownOptions.showLogo) {
-      initialDropdowns.logo = 'No'; // Default
+      if (isSnapcabsImage) {
+        initialDropdowns.type = typeMatch?.[1] === 'Major' ? 'Major' : 'Minor';
+      } else {
+        initialDropdowns.logo = logoMatch?.[1]?.toLowerCase() === 'yes' ? 'Yes' : 'No';
+      }
     }
     if (dropdownOptions.showDamageDetection) {
-      initialDropdowns.damageDetection = 'No damage'; // Default
+      const damageVal = damageMatch?.[1]?.trim();
+      initialDropdowns.damageDetection = (damageVal === 'No damage' || damageVal === 'Damage' || damageVal === 'Dent' || damageVal === 'Scratch')
+        ? damageVal as 'No damage' | 'Damage' | 'Dent' | 'Scratch'
+        : 'No damage';
     }
     if (dropdownOptions.showFrontFloor) {
       initialDropdowns.frontFloor = 'Dirty'; // Default
@@ -2688,7 +2730,8 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
       }
       
       // Format comments for AI images from dropdown values
-      const aiComment = formatAIComment(originalImageDropdowns);
+      const isSnapcabs = selectedImage?.clientName === 'SNAPCABS';
+      const aiComment = formatAIComment(originalImageDropdowns, isSnapcabs);
       const formattedComments: typeof comments = {
         original: '', // Original image has no comment (only dropdowns)
         ai1: aiComment, // Same comment for both AI images
@@ -3404,39 +3447,71 @@ const ManualInspectionDashboard: React.FC<ManualInspectionDashboardProps> = ({ o
                     Original Image Comments
                   </h3>
                   <div className="space-y-3">
-                    {/* Images 1-10: Logo and Damage Detection */}
+                    {/* Images 1-10: Logo (others) or Type (SNAPCABS) and Damage Detection */}
                     {dropdownOptions.showLogo && (
                       <div>
-                        <label className="text-gray-400 text-xs mb-1 block">Logo</label>
-                        <div className="flex gap-3">
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="radio"
-                              name="logo"
-                              value="Yes"
-                              checked={originalImageDropdowns.logo === 'Yes'}
-                              onChange={(e) => setOriginalImageDropdowns(prev => ({ ...prev, logo: 'Yes' as const }))}
-                              className="w-4 h-4 text-blue-500"
-                            />
-                            <span className="text-white text-sm">Yes</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="radio"
-                              name="logo"
-                              value="No"
-                              checked={originalImageDropdowns.logo === 'No'}
-                              onChange={(e) => setOriginalImageDropdowns(prev => ({ ...prev, logo: 'No' as const }))}
-                              className="w-4 h-4 text-blue-500"
-                            />
-                            <span className="text-white text-sm">No</span>
-                          </label>
-                        </div>
+                        {selectedImage?.clientName === 'SNAPCABS' ? (
+                          <>
+                            <label className="text-gray-400 text-xs mb-1 block">Type</label>
+                            <div className="flex gap-3">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="type"
+                                  value="Major"
+                                  checked={originalImageDropdowns.type === 'Major'}
+                                  onChange={() => setOriginalImageDropdowns(prev => ({ ...prev, type: 'Major' as const }))}
+                                  className="w-4 h-4 text-blue-500"
+                                />
+                                <span className="text-white text-sm">Major</span>
+                              </label>
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="type"
+                                  value="Minor"
+                                  checked={originalImageDropdowns.type === 'Minor'}
+                                  onChange={() => setOriginalImageDropdowns(prev => ({ ...prev, type: 'Minor' as const }))}
+                                  className="w-4 h-4 text-blue-500"
+                                />
+                                <span className="text-white text-sm">Minor</span>
+                              </label>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <label className="text-gray-400 text-xs mb-1 block">Logo</label>
+                            <div className="flex gap-3">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="logo"
+                                  value="Yes"
+                                  checked={originalImageDropdowns.logo === 'Yes'}
+                                  onChange={() => setOriginalImageDropdowns(prev => ({ ...prev, logo: 'Yes' as const }))}
+                                  className="w-4 h-4 text-blue-500"
+                                />
+                                <span className="text-white text-sm">Yes</span>
+                              </label>
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="logo"
+                                  value="No"
+                                  checked={originalImageDropdowns.logo === 'No'}
+                                  onChange={() => setOriginalImageDropdowns(prev => ({ ...prev, logo: 'No' as const }))}
+                                  className="w-4 h-4 text-blue-500"
+                                />
+                                <span className="text-white text-sm">No</span>
+                              </label>
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
                     {dropdownOptions.showDamageDetection && (
                       <div>
-                        <label className="text-gray-400 text-xs mb-1 block">Damage Detection</label>
+                        <label className="text-gray-400 text-xs mb-1 block">{selectedImage?.clientName === 'SNAPCABS' ? 'Dent/Damage' : 'Damage Detection'}</label>
                         <div className="flex flex-wrap gap-3">
                           <label className="flex items-center gap-2 cursor-pointer">
                             <input

@@ -499,7 +499,7 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
 
   // Get session display name based on client
   const getSessionDisplayName = (sessionType: 'morning' | 'evening'): string => {
-    if (clientName === 'REFUX' || clientName === 'SNAPCABS') {
+    if (clientName === 'REFUX' || clientName === 'SNAPCABS' || clientName === 'ECO MOBILITY') {
       return sessionType === 'morning' ? 'MORNING' : 'EVENING';
     }
     return ''; // Other clients don't show session tags
@@ -698,7 +698,7 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
       {/* Summary Cards */}
       {dashboardData && dashboardData.summary && (
         <div className="px-4 md:px-8 pb-6 md:pb-8">
-          <div className={`grid ${(clientName === 'REFUX' || clientName === 'SNAPCABS') ? 'grid-cols-2 md:grid-cols-2' : 'grid-cols-2 md:grid-cols-5'} gap-4 md:gap-6 mb-6 md:mb-8`}>
+          <div className={`grid ${(clientName === 'REFUX' || clientName === 'SNAPCABS' || clientName === 'ECO MOBILITY') ? 'grid-cols-2 md:grid-cols-2' : 'grid-cols-2 md:grid-cols-5'} gap-4 md:gap-6 mb-6 md:mb-8`}>
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -711,7 +711,7 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
               <p className="text-white font-bold text-xl md:text-3xl">{dashboardData.summary.totalCars}</p>
             </motion.div>
 
-            {(clientName === 'SNAPCABS' || clientName === 'REFUX') && (
+            {(clientName === 'SNAPCABS' || clientName === 'REFUX' || clientName === 'ECO MOBILITY') && (
               <>
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
@@ -724,7 +724,7 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                   </div>
                   <h3 className="text-gray-400 text-xs md:text-sm mb-1 md:mb-2">Morning Done</h3>
                   <p className="text-white font-bold text-xl md:text-3xl">
-                    {(clientName === 'REFUX' || clientName === 'SNAPCABS') && dashboardData.cars
+                    {(clientName === 'REFUX' || clientName === 'SNAPCABS' || clientName === 'ECO MOBILITY') && dashboardData.cars
                       ? calculateRefuxSummary(dashboardData.cars).morningDone
                       : dashboardData.summary.morningDone}
                   </p>
@@ -741,7 +741,7 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                   </div>
                   <h3 className="text-gray-400 text-xs md:text-sm mb-1 md:mb-2">Evening Done</h3>
                   <p className="text-white font-bold text-xl md:text-3xl">
-                    {(clientName === 'REFUX' || clientName === 'SNAPCABS') && dashboardData.cars
+                    {(clientName === 'REFUX' || clientName === 'SNAPCABS' || clientName === 'ECO MOBILITY') && dashboardData.cars
                       ? calculateRefuxSummary(dashboardData.cars).eveningDone
                       : dashboardData.summary.eveningDone}
                   </p>
@@ -769,29 +769,30 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                 <table className="w-full">
                   <thead className="bg-white/5 border-b border-white/10">
                     <tr>
-                      <th className={`px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider ${(clientName === 'REFUX' || clientName === 'SNAPCABS') ? 'px-2 md:px-4' : ''}`}>Car Number</th>
-                      <th className={`px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider ${(clientName === 'REFUX' || clientName === 'SNAPCABS') ? 'px-2 md:px-4' : ''}`}>Inspection ID</th>
+                      <th className={`px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider ${(clientName === 'REFUX' || clientName === 'SNAPCABS' || clientName === 'ECO MOBILITY') ? 'px-2 md:px-4' : ''}`}>Car Number</th>
+                      <th className={`px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider ${(clientName === 'REFUX' || clientName === 'SNAPCABS' || clientName === 'ECO MOBILITY') ? 'px-2 md:px-4' : ''}`}>Inspection ID</th>
                       <th className={`px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider ${
-                        (clientName === 'REFUX' || clientName === 'SNAPCABS')
+                        (clientName === 'REFUX' || clientName === 'SNAPCABS' || clientName === 'ECO MOBILITY')
                           ? 'hidden md:table-cell px-2 md:px-4'
                           : 'hidden md:table-cell'
                       }`}>Created By</th>
-                      {(clientName === 'REFUX' || clientName === 'SNAPCABS') ? (
+                      {(clientName === 'REFUX' || clientName === 'SNAPCABS' || clientName === 'ECO MOBILITY') ? (
                         <th className="px-2 md:px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider hidden sm:table-cell">Inspections</th>
                       ) : null}
                       <th className={`px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider ${
-                        (clientName === 'REFUX' || clientName === 'SNAPCABS')
+                        (clientName === 'REFUX' || clientName === 'SNAPCABS' || clientName === 'ECO MOBILITY')
                           ? 'hidden sm:table-cell px-2 md:px-4'
                           : 'hidden md:table-cell'
                       }`}>Status</th>
-                      <th className={`px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider ${(clientName === 'REFUX' || clientName === 'SNAPCABS') ? 'px-2 md:px-4' : ''}`}>Dashboard</th>
+                      <th className={`px-4 py-3 md:px-6 md:py-4 text-left text-xs md:text-sm font-semibold text-gray-300 uppercase tracking-wider ${(clientName === 'REFUX' || clientName === 'SNAPCABS' || clientName === 'ECO MOBILITY') ? 'px-2 md:px-4' : ''}`}>Dashboard</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/10">
                     <AnimatePresence>
                       {(() => {
-                        // For REFUX and SNAPCABS, use same layout: group by carNumber, Inspection Dashboard per inspection
-                        if ((clientName === 'REFUX' || clientName === 'SNAPCABS') && dashboardData.cars) {
+                        // For REFUX, SNAPCABS, and ECO MOBILITY, use same layout: group by carNumber, Inspection Dashboard per inspection
+                        const shouldUseRefuxLayout = (clientName === 'REFUX' || clientName === 'SNAPCABS' || clientName === 'ECO MOBILITY') && dashboardData.cars;
+                        if (shouldUseRefuxLayout) {
                           // Separate complete and processing inspections
                           const sortedCars = sortRefuxCars(dashboardData.cars);
                           const groupedCars = groupRefuxInspectionsByCar(sortedCars);
@@ -1132,7 +1133,12 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                             </>
                           );
                         } else {
-                          // For SNAPCABS and other clients, show original table structure
+                          // For other clients (NOT REFUX, NOT SNAPCABS, NOT ECO MOBILITY), show original table structure
+                          // Note: SNAPCABS should never reach here - if it does, there's a bug
+                          if (clientName === 'SNAPCABS' || clientName === 'REFUX' || clientName === 'ECO MOBILITY') {
+                            console.error('ERROR: SNAPCABS/REFUX/ECOMOBILITY should not be in else block!');
+                            return null;
+                          }
                           return dashboardData.cars.map((car, index) => (
                         <motion.tr
                           key={car.inspectionId}
@@ -1151,7 +1157,7 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                               </span>
                             </div>
                           </td>
-                              {(clientName === 'SNAPCABS' || clientName === 'REFUX') && (
+                              {(clientName === 'SNAPCABS' || clientName === 'REFUX' || clientName === 'ECO MOBILITY') && (
                             <>
                               <td className="px-4 py-4 md:px-6 md:py-5 align-top">
                                 <div className="min-w-[110px]">
@@ -1165,7 +1171,7 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                               </td>
                             </>
                           )}
-                          <td className={`px-4 py-4 md:px-6 md:py-5 ${clientName !== 'SNAPCABS' ? 'hidden md:table-cell' : ''}`}>
+                          <td className={`px-4 py-4 md:px-6 md:py-5 ${(clientName !== 'SNAPCABS' && clientName !== 'ECO MOBILITY') ? 'hidden md:table-cell' : ''}`}>
                             <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold border capitalize ${getStatusColor(car.status)}`}>
                               {car.status}
                             </span>
@@ -1176,8 +1182,9 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                               const isAvailable = pdfStatus.isAvailable;
                               const isPending = pdfStatus.isPending;
                               
-                              // For SNAPCABS: Show PDF download button (default behavior)
-                              if (clientName === 'SNAPCABS') {
+                              // For other clients (not REFUX, not SNAPCABS, not ECO MOBILITY): Show Dashboard button
+                              // Note: SNAPCABS/REFUX/ECOMOBILITY should never reach here - they use the IF block above
+                              // Only show Dashboard button if pdfReady is true (same logic as REFUX/SNAPCABS/ECOMOBILITY)
                               return (
                                 <div className="flex flex-col gap-2">
                                   <div className="flex items-center gap-2">
@@ -1198,55 +1205,7 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                                       }
                                     </span>
                                   </div>
-                                  {isAvailable && (
-                                    <motion.button
-                                      whileHover={{ scale: 1.05 }}
-                                      whileTap={{ scale: 0.95 }}
-                                      onClick={() => handleDownloadPDF(car)}
-                                      disabled={downloadingPdf === car.carNumber}
-                                        className="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-500 text-white font-bold py-1 md:py-2 px-3 md:px-4 rounded-lg text-xs md:text-sm flex items-center gap-2 w-full justify-center"
-                                    >
-                                      {downloadingPdf === car.carNumber ? (
-                                        <>
-                                          <Loader className="w-3 h-3 md:w-4 md:h-4 animate-spin" />
-                                            <span className="hidden md:inline">Downloading...</span>
-                                            <span className="md:hidden">Loading...</span>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <Download className="w-3 h-3 md:w-4 md:h-4" />
-                                            <span className="hidden md:inline">Download PDF</span>
-                                            <span className="md:hidden">PDF</span>
-                                        </>
-                                      )}
-                                      </motion.button>
-                                    )}
-                                  </div>
-                                );
-                              }
-                              
-                              // For other clients (not REFUX, not SNAPCABS): Show Dashboard button
-                              return (
-                                <div className="flex flex-col gap-2">
-                                  <div className="flex items-center gap-2">
-                                    <div className={`w-2 h-2 rounded-full ${
-                                      isAvailable 
-                                        ? 'bg-green-400' 
-                                        : isPending 
-                                        ? 'bg-yellow-400' 
-                                        : 'bg-gray-400'
-                                    }`}></div>
-                                    <span className="text-gray-400 text-xs">
-                                      PDF {
-                                        isAvailable 
-                                          ? 'Ready' 
-                                          : isPending 
-                                          ? 'Pending Approval' 
-                                          : 'Not Ready'
-                                      }
-                                    </span>
-                                  </div>
-                                  {isAvailable && (
+                                  {car.pdfReady && isAvailable && (
                                     <motion.button
                                       whileHover={{ scale: 1.05 }}
                                       whileTap={{ scale: 0.95 }}
@@ -1257,6 +1216,9 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
                                       <span className="hidden md:inline">View Dashboard</span>
                                       <span className="md:hidden">Dashboard</span>
                                     </motion.button>
+                                  )}
+                                  {!car.pdfReady && (
+                                    <span className="text-gray-400 text-[10px] md:text-xs text-center">No Dashboard</span>
                                   )}
                                 </div>
                               );
