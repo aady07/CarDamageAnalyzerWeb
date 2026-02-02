@@ -505,7 +505,7 @@ const InspectionDashboard: React.FC<InspectionDashboardProps> = ({ inspectionId,
                 <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-purple-400 flex-shrink-0" />
                 <p className="text-gray-400 text-xs sm:text-sm">Client</p>
               </div>
-              <p className="text-white font-bold text-base sm:text-lg">{inspection.clientDisplayName || inspection.clientName || 'N/A'}</p>
+              <p className="text-white font-bold text-base sm:text-lg">{inspection.clientName === 'SNAPCABS' ? 'Snap-E Cabs' : (inspection.clientDisplayName || inspection.clientName || 'N/A')}</p>
             </div>
             <div className="bg-white/5 rounded-lg sm:rounded-xl p-3 sm:p-4">
               <div className="flex items-center gap-2 sm:gap-3 mb-2">

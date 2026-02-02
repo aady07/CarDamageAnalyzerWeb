@@ -625,7 +625,7 @@ const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack, clientName = 
             <div className="flex-1 min-w-0">
               <h1 className="text-lg md:text-2xl font-bold text-white flex items-center gap-2">
                 <Users className="w-5 h-5 md:w-6 md:h-6 text-blue-400 flex-shrink-0" />
-                <span className="truncate">{clientDisplayName || clientName} Dashboard</span>
+                <span className="truncate">{clientName === 'SNAPCABS' ? 'Snap-E Cabs' : (clientDisplayName || clientName)} Dashboard</span>
               </h1>
               <p className="text-gray-400 text-xs md:text-sm">View all inspections from your drivers and head users</p>
             </div>
